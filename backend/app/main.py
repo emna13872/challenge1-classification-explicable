@@ -93,6 +93,8 @@ def load(req: LoadReq, s: Session = Depends(sess_dep)):
             df, target, positive = D.load_preset(req.dataset)
         except ValueError:
             raise
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
         except Exception as e:
             raise HTTPException(502, f"Téléchargement impossible : {e}")
         _install(s, df, target, positive, req.dataset)

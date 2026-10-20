@@ -6,3 +6,7 @@ __pycache__/
 .ipynb_checkpoints/
 *.pyc
 .env
+
+# jeux de données locaux (voir data/README.md)
+data/*
+!data/README.md

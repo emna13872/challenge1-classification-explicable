@@ -298,7 +298,7 @@ def local(sess, name, thr, test_index=None, record=None, lime_samples=1500, top=
 # ---------------------------------------------------------------- équité
 _SENS = {"gender", "sex", "age", "senior", "citizen", "seniorcitizen", "race", "ethnic", "ethnicity",
          "nationality", "marital", "married", "partner", "dependents", "religion", "native", "origin",
-         "country", "relationship"}
+         "country", "relationship", "marriage"}
 
 
 def is_sensitive(col: str) -> bool:

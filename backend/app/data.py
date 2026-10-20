@@ -1,6 +1,8 @@
 """Module 1 – chargement automatique et exploration des données."""
 import io
+import os
 import re
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -8,7 +10,24 @@ import pandas as pd
 TELCO_URL = ("https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/"
              "master/data/Telco-Customer-Churn.csv")
 
+# Dossier des jeux de données locaux (non versionnés : trop volumineux, licences de redistribution).
+# Modifiable par la variable d'environnement CREDITLENS_DATA_DIR.
+DATA_DIR = Path(os.environ.get("CREDITLENS_DATA_DIR", Path(__file__).resolve().parents[2] / "data"))
+
 PRESETS = {
+    "taiwan_credit": {
+        "label": "Défaut de carte de crédit (Taïwan, 2005) – défaut de paiement le mois suivant",
+        "target": "default", "positive": "1", "drop": ["ID"],
+        "source": "UCI n°350, fichier local (CC BY 4.0)",
+        "files": ["default of credit card clients.xls", "default_of_credit_card_clients.csv",
+                  "UCI_Credit_Card.csv"],
+    },
+    "ulb_fraud": {
+        "label": "Fraude par carte bancaire (ULB, 2013) – transaction frauduleuse",
+        "target": "Class", "positive": "1", "drop": [],
+        "source": "ULB / Worldline, fichier local creditcard.csv",
+        "files": ["creditcard.csv"],
+    },
     "telco": {
         "label": "Telco Customer Churn (IBM) – résiliation d'un client télécom",
         "target": "Churn", "positive": "Yes", "drop": ["customerID"],
@@ -43,6 +62,47 @@ def _numeric_coerce(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _find_local(files: list[str]) -> Path:
+    for f in files:
+        p = DATA_DIR / f
+        if p.exists():
+            return p
+    raise FileNotFoundError(
+        f"Fichier introuvable dans {DATA_DIR} (attendu : {' ou '.join(files)}). "
+        "Voir data/README.md pour le téléchargement.")
+
+
+# Libellés des codes catégoriels du jeu de Taïwan. Les codes 0, 5 et 6 de EDUCATION et 0 de MARRIAGE
+# n'existent pas dans la documentation UCI : on les regroupe dans « others » plutôt que d'inventer un sens.
+_TW_SEX = {1: "male", 2: "female"}
+_TW_EDU = {1: "graduate school", 2: "university", 3: "high school", 4: "others", 0: "others",
+           5: "others", 6: "others"}
+_TW_MAR = {1: "married", 2: "single", 3: "others", 0: "others"}
+
+
+def prepare_taiwan(df: pd.DataFrame) -> pd.DataFrame:
+    """Nettoyage du jeu de Taïwan : noms de colonnes cohérents, codes -> libellés, cible renommée."""
+    df = df.copy()
+    # Selon la source, la cible s'écrit « default payment next month » ou « default.payment.next.month ».
+    for c in list(df.columns):
+        if re.sub(r"[^a-z]", "", str(c).lower()) == "defaultpaymentnextmonth":
+            df = df.rename(columns={c: "default"})
+    # PAY_0 -> PAY_1 : le fichier saute de PAY_0 à PAY_2 ; on rétablit la suite PAY_1..PAY_6 (sept. -> avril).
+    if "PAY_0" in df.columns and "PAY_1" not in df.columns:
+        df = df.rename(columns={"PAY_0": "PAY_1"})
+    for col, mapping in (("SEX", _TW_SEX), ("EDUCATION", _TW_EDU), ("MARRIAGE", _TW_MAR)):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").map(mapping).astype(object)
+    df["default"] = pd.to_numeric(df["default"], errors="coerce").astype("Int64").astype(str)
+    return df
+
+
+def _read_local(path: Path) -> pd.DataFrame:
+    if path.suffix.lower() in (".xls", ".xlsx"):
+        return pd.read_excel(path, header=1)        # la 1re ligne du fichier UCI contient X1..X23
+    return pd.read_csv(path)
+
+
 def _from_uci(uci_id: int) -> pd.DataFrame:
     from ucimlrepo import fetch_ucirepo
     ds = fetch_ucirepo(id=uci_id)
@@ -53,7 +113,11 @@ def load_preset(key: str):
     if key not in PRESETS:
         raise ValueError(f"Jeu de données inconnu : {key}")
     p = PRESETS[key]
-    if key == "telco":
+    if "files" in p:
+        df = _read_local(_find_local(p["files"]))
+        if key == "taiwan_credit":
+            df = prepare_taiwan(df)
+    elif key == "telco":
         try:
             df = pd.read_csv(TELCO_URL)
         except Exception:

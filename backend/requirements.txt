@@ -8,3 +8,4 @@ xgboost>=2.0
 shap>=0.45
 lime>=0.2.0.1
 ucimlrepo>=0.0.7
+xlrd>=2.0.1
