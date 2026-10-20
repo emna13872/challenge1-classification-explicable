@@ -54,6 +54,14 @@ def test_missing_file_gives_clear_404(monkeypatch, tmp_path):
     assert r.status_code == 404 and "creditcard.csv" in r.json()["detail"]
 
 
+def test_find_local_looks_in_one_subfolder(monkeypatch, tmp_path):
+    (tmp_path / "creditlens").mkdir()
+    f = tmp_path / "creditlens" / "creditcard.csv"
+    f.write_text("a,b\n1,2\n")
+    monkeypatch.setattr(D, "DATA_DIR", tmp_path)
+    assert D._find_local(["creditcard.csv"]) == f
+
+
 # ------------------------------------------------------------- intégration (fichier réel requis)
 taiwan_present = any((D.DATA_DIR / f).exists() for f in D.PRESETS["taiwan_credit"]["files"])
 fraud_present = (D.DATA_DIR / "creditcard.csv").exists()

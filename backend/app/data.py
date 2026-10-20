@@ -67,6 +67,10 @@ def _find_local(files: list[str]) -> Path:
         p = DATA_DIR / f
         if p.exists():
             return p
+    # tolérance : le fichier peut être rangé dans un sous-dossier de data/ (un seul niveau)
+    for f in files:
+        for p in sorted(DATA_DIR.glob(f"*/{f}")):
+            return p
     raise FileNotFoundError(
         f"Fichier introuvable dans {DATA_DIR} (attendu : {' ou '.join(files)}). "
         "Voir data/README.md pour le téléchargement.")
