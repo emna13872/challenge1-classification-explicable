@@ -14,6 +14,7 @@ from . import explain as X
 from . import metrics as MT
 from . import models as MD
 from . import prep as P
+from . import validation as V
 from .state import Session, clean, get_session
 
 
@@ -202,6 +203,26 @@ def train(req: TrainReq, s: Session = Depends(sess_dep)):
         out.append({"name": spec.name, "label": MD.CATALOG[spec.name]["label"], **info})
     s.cache.pop("lime", None)
     return {"trained": out}
+
+
+class CompareReq(BaseModel):
+    models: list[ModelSpec]
+    balance: bool = False
+    n_splits: int = Field(5, ge=3, le=10)
+    n_repeats: int = Field(2, ge=1, le=5)
+    max_rows: int = Field(20000, ge=1000, le=100000)
+
+
+@app.post("/api/models/compare", tags=["modèles"])
+def compare(req: CompareReq, s: Session = Depends(sess_dep)):
+    """Compare les modèles par validation croisée répétée sur le lot d'apprentissage SEUL (jamais le test)."""
+    need_prep(s)
+    for spec in req.models:
+        if spec.name not in MD.CATALOG:
+            raise HTTPException(400, f"Modèle inconnu : {spec.name}")
+    specs = [{"name": m.name, "params": m.params} for m in req.models]
+    return guard(lambda: V.cross_validate(s, specs, req.n_splits, req.n_repeats, balance=req.balance,
+                                          max_rows=req.max_rows))
 
 
 # ------------------------------------------------------------------ module 4
