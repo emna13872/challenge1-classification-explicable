@@ -94,6 +94,7 @@ def build(sess: Session, cfg: dict):
     sess.M_train, sess.M_test = M_train, M_test
     sess.Z_train, sess.Z_test = scaler.transform(M_train), scaler.transform(M_test)
     sess.models, sess.cache = {}, {}
+    sess.test_openings, sess.final = 0, None        # nouveau découpage : le lot de test est de nouveau vierge
     return {
         "n_train": len(Xtr), "n_test": len(Xte), "n_features_in": len(feats),
         "n_features_encoded": len(names), "numeric": num_cols, "categorical": cat_cols,

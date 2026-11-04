@@ -52,6 +52,13 @@ describe('parcours complet', () => {
     await screen.findByText(/Seuil 50 % \(par habitude\)/, {}, T)
     await waitFor(() => expect(document.body.textContent).toMatch(/Seuil retenu/), T)
 
+    // Évaluation finale : le test s'ouvre une fois ; un second clic ne le relit pas.
+    await user.click(screen.getByRole('button', { name: /Ouvrir le lot de test/ }))
+    await screen.findByText(/choisi sans le test/, {}, T)
+    await waitFor(() => expect(document.body.textContent).toMatch(/ouvert 1 fois/), T)
+    await user.click(screen.getByRole('button', { name: /Revoir le résultat final/ }))
+    await waitFor(() => expect(document.body.textContent).toMatch(/le test n'a pas été relu/), T)
+
     await user.click(screen.getByRole('button', { name: /Évaluer et comparer/ }))
     await screen.findByText('Tableau comparatif des modèles', {}, T)
     await screen.findByText(/Matrice de confusion/, {}, T)

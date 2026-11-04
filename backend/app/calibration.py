@@ -57,6 +57,18 @@ def _calibrate_cv(y, p, method: str, n_splits: int, seed: int) -> np.ndarray:
     return out
 
 
+def fit_calibrator(y, p, method: str):
+    """Ajuste la correction sur toutes les prédictions hors-pli ; renvoie une fonction proba brute -> proba corrigée."""
+    y, p = np.asarray(y), np.asarray(p)
+    if method == "sigmoid":
+        cal = LogisticRegression(C=1e6, solver="lbfgs").fit(_logit(p), y)
+        return lambda q: cal.predict_proba(_logit(np.asarray(q)))[:, 1]
+    if method == "isotonic":
+        cal = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(p, y)
+        return lambda q: cal.predict(np.asarray(q))
+    return lambda q: np.asarray(q, dtype=float)
+
+
 def _metrics(y, p) -> dict:
     bins = reliability(y, p)
     return {"brier": brier(y, p), "ece": ece(bins), "mean_pred": float(np.mean(p)), "bins": bins}

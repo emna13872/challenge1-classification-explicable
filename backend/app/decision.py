@@ -33,15 +33,20 @@ def cost_at(y, p, thr: float, cost_fn: float, cost_fp: float) -> dict:
             "fn": fn, "fp": fp}
 
 
+def cost_curve(y, p, cost_fn: float, cost_fp: float) -> tuple[list[dict], dict]:
+    """Coût pour chaque seuil de 0,01 à 0,99, et la ligne du meilleur seuil."""
+    grid = np.round(np.linspace(0.01, 0.99, 99), 2)
+    curve = [cost_at(y, p, t, cost_fn, cost_fp) for t in grid]
+    return curve, min(curve, key=lambda r: r["cost"])
+
+
 def decision_report(sess: Session, spec: dict, cost_fn: float, cost_fp: float, n_splits: int = 5, seed: int = 0,
                     balance: bool = False, max_rows: int = 20000) -> dict:
     t_theo = theoretical_threshold(cost_fn, cost_fp)
     y, probs = CAL.oof_by_method(sess, spec, n_splits, seed, balance, max_rows)
     method = CAL.pick_best(y, probs)                 # on décide sur les probabilités les plus fiables
     p = probs[method]
-    grid = np.round(np.linspace(0.01, 0.99, 99), 2)
-    curve = [cost_at(y, p, t, cost_fn, cost_fp) for t in grid]
-    best = min(curve, key=lambda r: r["cost"])
+    curve, best = cost_curve(y, p, cost_fn, cost_fp)
     rate = float(np.mean(y))
     return {
         "model": spec["name"], "label": MD.CATALOG[spec["name"]]["label"], "calibration_used": method,

@@ -13,6 +13,7 @@ from . import calibration as CAL
 from . import data as D
 from . import decision as DEC
 from . import explain as X
+from . import final as FIN
 from . import metrics as MT
 from . import models as MD
 from . import prep as P
@@ -262,6 +263,22 @@ def threshold(req: ThresholdReq, s: Session = Depends(sess_dep)):
     spec = {"name": req.model.name, "params": req.model.params}
     return guard(lambda: DEC.decision_report(s, spec, req.cost_fn, req.cost_fp, req.n_splits,
                                              balance=req.balance, max_rows=req.max_rows))
+
+
+class FinalReq(ThresholdReq):
+    force: bool = False
+
+
+@app.post("/api/final/evaluate", tags=["évaluation finale"])
+def final_evaluate(req: FinalReq, s: Session = Depends(sess_dep)):
+    """Ouvre le lot de test UNE fois pour juger la chaîne complète (modèle, calibration, seuil).
+    Un second appel renvoie le résultat déjà obtenu ; `force` rouvre le test et le compte."""
+    need_prep(s)
+    if req.model.name not in MD.CATALOG:
+        raise HTTPException(400, f"Modèle inconnu : {req.model.name}")
+    spec = {"name": req.model.name, "params": req.model.params}
+    return guard(lambda: FIN.final_evaluation(s, spec, req.cost_fn, req.cost_fp, req.n_splits,
+                                              balance=req.balance, max_rows=req.max_rows, force=req.force))
 
 
 # ------------------------------------------------------------------ module 4

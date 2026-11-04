@@ -31,6 +31,9 @@ class Session:
         # modèles
         self.models = {}
         self.cache = {}
+        # évaluation finale : combien de fois le lot de test a-t-il été ouvert pour décider ?
+        self.test_openings = 0
+        self.final = None
 
 
 _SESSIONS: "OrderedDict[str, Session]" = OrderedDict()

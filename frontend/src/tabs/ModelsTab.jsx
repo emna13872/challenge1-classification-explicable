@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../App.jsx'
 import { get, post } from '../api.js'
-import { Card, Table, Notice, useAction, Status, num } from '../ui.jsx'
+import { Card, Table, Notice, useAction, Status, Stat, num } from '../ui.jsx'
 import Chart, { COLORS } from '../Chart.jsx'
 
 const CAL_LABEL = { raw: 'brute (sans correction)', sigmoid: 'sigmoïde (Platt)', isotonic: 'isotonique' }
@@ -19,6 +19,8 @@ export default function ModelsTab() {
   const [calModel, setCalModel] = useState('')
   const [thrSt, runThr] = useAction()
   const [thr, setThr] = useState(null)
+  const [finSt, runFin] = useAction()
+  const [fin, setFin] = useState(null)
   const [costFn, setCostFn] = useState(5)
   const [costFp, setCostFp] = useState(1)
 
@@ -70,6 +72,13 @@ export default function ModelsTab() {
   const decide = () => runThr(async () => {
     setThr(await post('/api/models/threshold', {
       balance, cost_fn: Number(costFn), cost_fp: Number(costFp),
+      model: { name: calName, params: sel[calName].params },
+    }))
+  })
+  // Évaluation finale : le lot de test s'ouvre UNE fois ; un second clic renvoie le résultat déjà obtenu.
+  const finalEval = (force = false) => runFin(async () => {
+    setFin(await post('/api/final/evaluate', {
+      balance, force, cost_fn: Number(costFn), cost_fp: Number(costFp),
       model: { name: calName, params: sel[calName].params },
     }))
   })
@@ -232,6 +241,65 @@ export default function ModelsTab() {
             <p className="muted small">
               Calculé sur {thr.settings.n_rows_used} dossiers d'apprentissage, avec des probabilités hors-pli. Test utilisé : {thr.test_set_used ? 'oui' : 'non'}.
               Si « refuser tout le monde » coûte autant que le meilleur seuil, le modèle n'apporte rien avec ces coûts.
+            </p>
+          </>
+        )}
+      </Card>
+
+      <Card title="Évaluation finale : ouvrir le lot de test une seule fois">
+        <p className="muted">
+          Étape finale de la chaîne. Le modèle, la correction de calibration et le seuil sont décidés <b>sans le lot de test</b>{' '}
+          (cartes précédentes, mêmes coûts). Le modèle est ensuite entraîné sur tout l'apprentissage et le lot de test est lu
+          <b> une seule fois</b>. On compare alors ce que la validation croisée promettait à ce qui se passe vraiment.
+          Chaque ouverture est comptée : rouvrir le test pour changer d'avis en fait un lot de choix, et sa note devient trop optimiste.
+        </p>
+        <Notice kind="warn">
+          L'onglet « Évaluation » affiche déjà des notes de test pour tous les modèles : ne vous en servez pas pour choisir un modèle.
+        </Notice>
+        <div className="row">
+          <button className="primary" onClick={() => finalEval(false)} disabled={finSt.loading || !calName || !prep || !(costFn > 0) || !(costFp > 0)}>
+            {fin ? 'Revoir le résultat final' : 'Ouvrir le lot de test (une seule fois)'}
+          </button>
+          {fin && <button onClick={() => finalEval(true)} disabled={finSt.loading}>Recalculer et rouvrir le test (compté)</button>}
+        </div>
+        <Status state={finSt} busy="Entraînement final puis lecture du lot de test…" />
+        {fin && (
+          <>
+            <Notice kind={fin.openings > 1 ? 'warn' : 'info'}>
+              Coût promis par la validation croisée : <b>{num(fin.expected.cost, 3)}</b> par dossier. Coût réel sur le lot de test :
+              <b> {num(fin.test.at_threshold.cost, 3)}</b> (intervalle à 95 % : {num(fin.test.cost_ci95[0], 3)} à {num(fin.test.cost_ci95[1], 3)}).
+              {fin.test.expected_inside_ci ? ' La promesse est tenue.' : ' La promesse sort de l\'intervalle : à examiner.'}
+              {' '}Lot de test ouvert {fin.openings} fois{fin.already_opened ? ' (résultat déjà obtenu, le test n\'a pas été relu)' : ''}.
+              {fin.warning ? ' ' + fin.warning : ''}
+            </Notice>
+            <Table maxHeight={260} columns={[
+              { key: 'k', label: `sur les ${fin.test.n} dossiers du lot de test` },
+              { key: 'cost', label: 'coût moyen par dossier', num: true, render: (r) => num(r.cost, 3) },
+              { key: 'refuse', label: 'dossiers refusés', num: true, render: (r) => pc(r.refuse) },
+              { key: 'recall', label: 'défauts repérés (rappel)', num: true, render: (r) => pc(r.recall) },
+              { key: 'precision', label: 'refus justifiés (précision)', num: true, render: (r) => pc(r.precision) }]}
+              rows={[
+                { k: 'Accepter tout le monde', cost: fin.test.accept_all, refuse: 0, recall: 0, precision: null },
+                { k: 'Refuser tout le monde', cost: fin.test.refuse_all, refuse: 1, recall: 1, precision: fin.test.base_rate },
+                { k: 'Seuil 50 % (par habitude)', cost: fin.test.at_half.cost, refuse: fin.test.at_half.refuse_rate, recall: fin.test.at_half.recall, precision: fin.test.at_half.precision },
+                { k: `Seuil retenu ${num(fin.threshold, 2)} (choisi sans le test)`, cost: fin.test.at_threshold.cost, refuse: fin.test.at_threshold.refuse_rate, recall: fin.test.at_threshold.recall, precision: fin.test.at_threshold.precision },
+              ]} />
+            <div className="stats">
+              <Stat label="AUC sur le test" value={num(fin.test.auc, 3)} />
+              <Stat label="Brier brut" value={num(fin.test.brier_raw, 4)} />
+              <Stat label={`Brier corrigé (${CAL_LABEL[fin.calibration_used]})`} value={num(fin.test.brier_calibrated, 4)} />
+              <Stat label="écart annoncé / réel (ECE), corrigé" value={num(fin.test.ece_calibrated, 4)} />
+            </div>
+            <Chart height={320} data={[
+              { x: [0, 1], y: [0, 1], mode: 'lines', name: 'calibration parfaite', line: { dash: 'dot', color: '#9ca3af' } },
+              { x: fin.test.bins_raw.map((b) => b.mean_pred), y: fin.test.bins_raw.map((b) => b.frac_pos), mode: 'lines+markers', name: 'brute', line: { color: COLORS[0] } },
+              { x: fin.test.bins_calibrated.map((b) => b.mean_pred), y: fin.test.bins_calibrated.map((b) => b.frac_pos), mode: 'lines+markers', name: 'corrigée', line: { color: COLORS[2] } },
+            ]} layout={{
+              xaxis: { title: { text: 'probabilité annoncée' }, range: [0, 1] },
+              yaxis: { title: { text: 'taux de défaut réel (lot de test)' }, range: [0, 1] },
+            }} />
+            <p className="muted small">
+              Décisions prises sur {fin.settings.n_rows_used} dossiers d'apprentissage (probabilités hors-pli). Test utilisé : {fin.test_set_used ? 'oui, une lecture comptée' : 'non'}.
             </p>
           </>
         )}
