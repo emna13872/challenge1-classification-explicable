@@ -9,9 +9,11 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 
+# Chaque modèle déclare ICI tout ce que le reste de l'application doit savoir de lui (type d'explicateur SHAP,
+# espace des explications, libellé de l'importance). Ajouter un modèle = ajouter une entrée ici et une ligne dans make().
 CATALOG = {
     "logreg": {
-        "label": "Régression logistique", "kind": "linear",
+        "label": "Régression logistique", "kind": "linear", "shap_space": "log-odds",
         "params": {
             "C": {"type": "float", "default": 1.0, "min": 0.001, "max": 100, "step": 0.1},
             "max_iter": {"type": "int", "default": 1000, "min": 100, "max": 5000, "step": 100},
@@ -19,7 +21,8 @@ CATALOG = {
         "grid": {"C": [0.01, 0.1, 1.0, 10.0]},
     },
     "tree": {
-        "label": "Arbre de décision", "kind": "tree",
+        "label": "Arbre de décision", "kind": "tree", "shap_space": "probabilité",
+        "importance_label": "Importance par impureté (MDI)",
         "params": {
             "max_depth": {"type": "int", "default": 5, "min": 1, "max": 30, "step": 1},
             "min_samples_leaf": {"type": "int", "default": 20, "min": 1, "max": 200, "step": 1},
@@ -27,14 +30,15 @@ CATALOG = {
         "grid": {"max_depth": [3, 5, 8, 12], "min_samples_leaf": [5, 20, 50]},
     },
     "knn": {
-        "label": "k plus proches voisins", "kind": "knn",
+        "label": "k plus proches voisins", "kind": "knn", "shap_space": "probabilité",
         "params": {
             "n_neighbors": {"type": "int", "default": 25, "min": 1, "max": 200, "step": 1},
         },
         "grid": {"n_neighbors": [5, 15, 25, 51, 101]},
     },
     "rf": {
-        "label": "Random Forest", "kind": "tree",
+        "label": "Random Forest", "kind": "tree", "shap_space": "probabilité",
+        "importance_label": "Importance par impureté (MDI)",
         "params": {
             "n_estimators": {"type": "int", "default": 200, "min": 50, "max": 1000, "step": 50},
             "max_depth": {"type": "int", "default": 10, "min": 2, "max": 40, "step": 1},
@@ -43,7 +47,8 @@ CATALOG = {
         "grid": {"max_depth": [6, 10, 16], "min_samples_leaf": [3, 10]},
     },
     "xgb": {
-        "label": "XGBoost", "kind": "tree",
+        "label": "XGBoost", "kind": "tree", "shap_space": "log-odds",
+        "importance_label": "Importance par impureté (gain)",
         "params": {
             "n_estimators": {"type": "int", "default": 300, "min": 50, "max": 1500, "step": 50},
             "max_depth": {"type": "int", "default": 4, "min": 1, "max": 12, "step": 1},

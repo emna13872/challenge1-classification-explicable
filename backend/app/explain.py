@@ -66,7 +66,7 @@ def _explainer(sess, name):
 
 
 def shap_space(name):
-    return "probabilité" if name in ("tree", "rf", "knn") else "log-odds"
+    return CATALOG[name]["shap_space"]
 
 
 def shap_values(sess, name, Z):
@@ -130,7 +130,7 @@ def native_importance(sess, name, top=20):
         signed = True
     elif kind == "tree":
         v = est.feature_importances_
-        label = "Importance par impureté (gain)" if name == "xgb" else "Importance par impureté (MDI)"
+        label = CATALOG[name]["importance_label"]
         signed = False
     else:
         return {"available": False, "label": "Non disponible pour k-NN (modèle sans paramètres interprétables)",
