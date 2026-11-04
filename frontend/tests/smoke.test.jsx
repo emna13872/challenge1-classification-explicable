@@ -91,6 +91,10 @@ describe('parcours complet', () => {
     await user.click(await screen.findByRole('button', { name: /Lancer l'audit/ }))
     await waitFor(() => expect(document.body.textContent).toMatch(/Aucune variable modifiable n'est déclarée|Aucun client refusé/), T)
 
+    // Assistant (LLM) : l'écran s'affiche, qu'Ollama soit lancé (choix du modèle) ou non (message clair).
+    await user.click(screen.getByRole('button', { name: /Assistant \(LLM\)/ }))
+    await waitFor(() => expect(document.body.textContent).toMatch(/Modèle Ollama|Ollama ne répond pas|Aucun modèle/), T)
+
     await user.click(screen.getByRole('button', { name: '6 · API' }))
     await screen.findByText(/Exemple d'appel/, {}, T)
     expect(errors.filter((e) => !/act\(/.test(e))).toEqual([])

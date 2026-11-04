@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useApp } from '../App.jsx'
 import { get, post } from '../api.js'
 import Chart, { COLORS, POS, NEG } from '../Chart.jsx'
+import AgentView from './AgentView.jsx'
 import { Card, Table, Notice, Slider, useAction, Status, pct, num, Stat } from '../ui.jsx'
 
 export default function XaiTab() {
@@ -20,7 +21,7 @@ export default function XaiTab() {
             <select value={cur} onChange={(e) => setModel(e.target.value)}>{names.map((n) => <option key={n} value={n}>{label(n)}</option>)}</select>
           </label>
           <div className="seg">
-            {[['global', 'Explications globales'], ['local', 'Explication d\'un individu'], ['fair', 'Variables sensibles et équité'], ['audit', 'Audit du recours']].map(([k, t]) => (
+            {[['global', 'Explications globales'], ['local', 'Explication d\'un individu'], ['fair', 'Variables sensibles et équité'], ['audit', 'Audit du recours'], ['agent', 'Assistant (LLM)']].map(([k, t]) => (
               <button key={k} className={view === k ? 'on' : ''} onClick={() => setView(k)}>{t}</button>))}
           </div>
         </div>
@@ -29,6 +30,7 @@ export default function XaiTab() {
       {view === 'local' && <Local model={cur} />}
       {view === 'fair' && <Fairness model={cur} />}
       {view === 'audit' && <RecourseAudit model={cur} />}
+      {view === 'agent' && <AgentView model={cur} />}
     </div>
   )
 }

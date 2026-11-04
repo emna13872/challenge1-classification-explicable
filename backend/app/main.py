@@ -21,6 +21,9 @@ from . import reasons as RS
 from . import recourse as RC
 from . import recourse_audit as RA
 from . import fraud as FR
+from . import agent as AG
+from . import agent_tools as AT
+from . import llm as LLM
 from . import validation as V
 from .state import Session, clean, get_session
 
@@ -430,6 +433,44 @@ def fraud_final(req: FraudFinalReq, s: Session = Depends(sess_dep)):
     """Décide sur l'apprentissage, puis ouvre le lot de test une seule fois (ouverture comptée)."""
     need_prep(s)
     return guard(lambda: FR.fraud_final(s, req.review_cost, req.variants, req.n_splits, req.amount_column, req.force))
+
+
+# ------------------------------------------------------------------ agent (phase D)
+def get_llm_factory():
+    """Fabrique du LLM (remplacée par un faux LLM dans les tests)."""
+    return lambda name=None: LLM.OllamaClient(model=name)
+
+
+@app.get("/api/agent/status", tags=["agent"])
+def agent_status(factory=Depends(get_llm_factory)):
+    """Ollama est-il lancé ? Quels modèles sont installés ?"""
+    try:
+        llm = factory("?")
+        models = llm.models() if hasattr(llm, "models") else []
+        usable = [m["name"] for m in models if "embed" not in m["name"]]
+        default = LLM.DEFAULT_MODEL or next((n for n in usable if n.startswith("qwen3")), usable[0] if usable else None)
+        return {"ok": bool(usable), "url": getattr(llm, "url", None), "models": models, "default": default,
+                "message": None if usable else "Aucun modèle de conversation installé (exemple : « ollama pull qwen3 »)."}
+    except LLM.LLMError as e:
+        return {"ok": False, "url": LLM.DEFAULT_URL, "models": [], "default": None, "message": str(e)}
+
+
+class AgentReq(BaseModel):
+    question: str = Field(..., min_length=3, max_length=1000)
+    model: str = Field(..., description="modèle CreditLens à expliquer (ex. xgb)")
+    threshold: float = Field(0.5, gt=0, lt=1)
+    llm_model: str | None = Field(None, description="modèle Ollama (ex. qwen3:8b) ; défaut : le premier qwen3")
+
+
+@app.post("/api/agent/ask", tags=["agent"])
+def agent_ask(req: AgentReq, s: Session = Depends(sess_dep), factory=Depends(get_llm_factory)):
+    """Pose une question à l'agent : il appelle les outils, et chaque nombre de sa réponse est vérifié."""
+    need_model(s, req.model)
+    ctx = AT.ToolContext(s, req.model, req.threshold, cache=s.cache.setdefault("agent_tools", {}))
+    try:
+        return AG.ask(factory(req.llm_model), ctx, req.question)
+    except LLM.LLMError as e:
+        raise HTTPException(503, str(e))
 
 
 # ------------------------------------------------------------------ interface web (build React)

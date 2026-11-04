@@ -87,3 +87,14 @@ code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px;
 
 ol.options { margin: 8px 0 8px 18px; padding: 0; }
 ol.options li { margin-bottom: 8px; line-height: 1.45; }
+
+/* assistant (phase D) */
+.tag.ok { background: #dcfce7; color: #166534; }
+.tag.bad { background: #fee2e2; color: #991b1b; }
+.answer { padding: 12px 14px; border-radius: 10px; font-size: 15px; line-height: 1.55; border-left: 5px solid; white-space: pre-wrap; }
+.answer.ok { background: #f0fdf4; border-color: #16a34a; }
+.answer.bad { background: #fff7ed; border-color: #ea580c; }
+.answer mark { background: #fecaca; padding: 0 2px; border-radius: 3px; }
+button.small { font-size: 12.5px; padding: 4px 9px; }
+textarea { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #cbd5e1; }
+details summary { cursor: pointer; font-weight: 600; margin: 8px 0; }
