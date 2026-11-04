@@ -249,12 +249,19 @@ def test_ollama_errors_are_explained():
         _ollama(down).chat([{"role": "user", "content": "x"}])
 
 
-def test_ollama_picks_a_qwen3_chat_model():
+def test_ollama_picks_the_largest_chat_model():
+    """Les modèles installés chez Emna le 5 novembre, plus qwen3:4b : c'est lui qui doit être choisi par défaut."""
     def tags(req):
-        return httpx.Response(200, json={"models": [{"name": "nomic-embed-text:latest"}, {"name": "llama3.1:8b"},
-                                                    {"name": "qwen3:8b"}]})
+        return httpx.Response(200, json={"models": [
+            {"name": "qwen3:1.7b", "size": 1.4e9, "details": {"parameter_size": "2.0B"}},
+            {"name": "nomic-embed-text:latest", "size": 2.7e8, "details": {"parameter_size": "137M"}},
+            {"name": "qwen3.5:0.8b", "size": 1.0e9, "details": {"parameter_size": "873.44M"}},
+            {"name": "qwen3.5:2b", "size": 2.7e9, "details": {"parameter_size": "2.3B"}},   # fichier plus gros…
+            {"name": "qwen3:4b", "size": 2.5e9, "details": {"parameter_size": "4.0B"}}]})  # … mais modèle plus grand
     c = LLM.OllamaClient(url="http://ollama.test", transport=httpx.MockTransport(tags))
-    assert c.model == "qwen3:8b"
+    assert c.model == "qwen3:4b"
+    assert LLM.param_count("752.39M") == pytest.approx(7.5239e8) and LLM.param_count(None) == 0
+    assert LLM.pick_default([{"name": "nomic-embed-text:latest", "parameters": "137M"}]) is None
 
 
 # ----------------------------------------------------------------------------------------------- routes

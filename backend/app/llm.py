@@ -11,8 +11,20 @@ import time
 import httpx
 
 DEFAULT_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-DEFAULT_MODEL = os.environ.get("CREDITLENS_LLM")          # sinon : le premier modèle qwen3 trouvé, puis le premier tout court
+DEFAULT_MODEL = os.environ.get("CREDITLENS_LLM")          # sinon : le plus grand modèle de conversation installé
 _THINK = re.compile(r"<think>.*?</think>", re.S)
+
+
+def param_count(text: str | None) -> float:
+    """« 4.0B » -> 4e9, « 752.39M » -> 7.5e8 (taille annoncée par Ollama) ; 0 si inconnue."""
+    m = re.match(r"\s*([\d.]+)\s*([KMBT])", text or "", re.I)
+    return float(m.group(1)) * {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}[m.group(2).upper()] if m else 0.0
+
+
+def pick_default(models: list[dict]) -> str | None:
+    """Modèle par défaut : le plus grand modèle de conversation installé (les petits appellent mal les outils)."""
+    usable = [m for m in models if "embed" not in m["name"]]          # un modèle d'« embedding » ne sait pas écrire
+    return max(usable, key=lambda m: param_count(m.get("parameters")))["name"] if usable else None
 
 
 class LLMError(Exception):
@@ -84,10 +96,10 @@ class OllamaClient:
                  "parameters": (m.get("details") or {}).get("parameter_size")} for m in r.json().get("models", [])]
 
     def _pick_model(self) -> str:
-        names = [m["name"] for m in self.models() if "embed" not in m["name"]]   # un modèle d'« embedding » ne parle pas
-        if not names:
-            raise LLMError("Aucun modèle Ollama installé. Exemple : « ollama pull qwen3 ».")
-        return next((n for n in names if n.startswith("qwen3")), names[0])
+        name = pick_default(self.models())
+        if not name:
+            raise LLMError("Aucun modèle Ollama installé. Exemple : « ollama pull qwen3:4b ».")
+        return name
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
         body = {"model": self.model, "messages": messages, "stream": False,

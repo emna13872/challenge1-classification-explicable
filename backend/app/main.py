@@ -450,9 +450,9 @@ def agent_status(factory=Depends(get_llm_factory)):
         llm = factory("?")
         models = llm.models() if hasattr(llm, "models") else []
         usable = [m["name"] for m in models if "embed" not in m["name"]]
-        default = LLM.DEFAULT_MODEL or next((n for n in usable if n.startswith("qwen3")), usable[0] if usable else None)
+        default = LLM.DEFAULT_MODEL or LLM.pick_default(models)
         return {"ok": bool(usable), "url": getattr(llm, "url", None), "models": models, "default": default,
-                "message": None if usable else "Aucun modèle de conversation installé (exemple : « ollama pull qwen3 »)."}
+                "message": None if usable else "Aucun modèle de conversation installé (exemple : « ollama pull qwen3:4b »)."}
     except LLM.LLMError as e:
         return {"ok": False, "url": LLM.DEFAULT_URL, "models": [], "default": None, "message": str(e)}
 
@@ -461,7 +461,7 @@ class AgentReq(BaseModel):
     question: str = Field(..., min_length=3, max_length=1000)
     model: str = Field(..., description="modèle CreditLens à expliquer (ex. xgb)")
     threshold: float = Field(0.5, gt=0, lt=1)
-    llm_model: str | None = Field(None, description="modèle Ollama (ex. qwen3:8b) ; défaut : le premier qwen3")
+    llm_model: str | None = Field(None, description="modèle Ollama (ex. qwen3:4b) ; défaut : le plus grand installé")
     mode: Literal["guided", "agent"] = Field("guided", description="guided : l'application choisit les outils ; agent : le LLM les choisit")
 
 
