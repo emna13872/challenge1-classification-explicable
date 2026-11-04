@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { useApp } from '../App.jsx'
 import { get, post } from '../api.js'
 import { Card, Table, Notice, useAction, Status, num } from '../ui.jsx'
+import Chart, { COLORS } from '../Chart.jsx'
+
+const CAL_LABEL = { raw: 'brute (sans correction)', sigmoid: 'sigmoïde (Platt)', isotonic: 'isotonique' }
 
 export default function ModelsTab() {
   const { prep, trained, setTrained, refreshEval, goTo } = useApp()
@@ -11,6 +14,9 @@ export default function ModelsTab() {
   const [st, run] = useAction()
   const [cvSt, runCv] = useAction()
   const [cv, setCv] = useState(null)
+  const [calSt, runCal] = useAction()
+  const [cal, setCal] = useState(null)
+  const [calModel, setCalModel] = useState('')
 
   useEffect(() => {
     get('/api/models/catalog').then((c) => {
@@ -47,6 +53,16 @@ export default function ModelsTab() {
       models: chosen.map(([name, v]) => ({ name, params: v.params })),
     }))
   })
+
+  // Mesure la fiabilité des probabilités du modèle choisi (lot d'apprentissage seul, jamais le test).
+  const calName = chosen.some(([k]) => k === calModel) ? calModel : (chosen[0]?.[0] || '')
+  const calibrate = () => runCal(async () => {
+    setCal(await post('/api/models/calibration', {
+      balance,
+      model: { name: calName, params: sel[calName].params },
+    }))
+  })
+  const calRows = cal ? Object.entries(cal.methods).map(([k, m]) => ({ key: k, ...m })) : []
 
   const cvRows = cv ? Object.entries(cv.models)
     .sort((a, b) => b[1].auc.mean - a[1].auc.mean)
@@ -97,6 +113,54 @@ export default function ModelsTab() {
             <p className="muted small">
               {cv.settings.n_splits} plis × {cv.settings.n_repeats} répétitions = {cv.settings.n_fits_per_model} notes par modèle,
               sur {cv.settings.n_rows_used} observations d'apprentissage. Test utilisé : {cv.test_set_used ? 'oui' : 'non'}.
+            </p>
+          </>
+        )}
+      </Card>
+
+      <Card title="Les probabilités annoncées sont-elles fiables ? (calibration)">
+        <p className="muted">
+          Quand le modèle annonce « 30 % », environ 30 % des clients font-ils vraiment défaut ? On le mesure sur des
+          prédictions faites par des modèles qui n'ont jamais vu le client noté (lot d'apprentissage seul, test intact),
+          puis on essaie deux corrections. Le score de Brier est l'erreur moyenne au carré entre la probabilité annoncée
+          et la réalité : plus il est petit, mieux c'est. Il se compare au Brier de référence d'un modèle qui annonce
+          toujours le taux moyen.
+        </p>
+        <div className="row">
+          <label className="inline">Modèle&nbsp;
+            <select value={calName} onChange={(e) => setCalModel(e.target.value)} disabled={chosen.length === 0}>
+              {chosen.map(([k]) => <option key={k} value={k}>{catalog[k].label}</option>)}
+            </select>
+          </label>
+          <button onClick={calibrate} disabled={calSt.loading || !calName || !prep}>Mesurer la fiabilité</button>
+        </div>
+        <Status state={calSt} busy="Calcul des probabilités hors-pli…" />
+        {cal && (
+          <>
+            <Notice kind={cal.recommended === 'raw' ? 'info' : 'warn'}>
+              {cal.recommended === 'raw'
+                ? 'Les probabilités brutes sont déjà fiables : aucune correction nécessaire.'
+                : `Les probabilités brutes sont mal calibrées : la correction « ${CAL_LABEL[cal.recommended]} » les améliore nettement.`}
+              {' '}Brier de référence : {num(cal.base_brier, 4)} (taux réel {num(cal.base_rate, 3)}).
+            </Notice>
+            <Table maxHeight={220} columns={[
+              { key: 'm', label: 'version', render: (r) => CAL_LABEL[r.key] + (r.key === cal.recommended ? ' ← retenue' : '') },
+              { key: 'brier', label: 'Brier', num: true, render: (r) => num(r.brier, 4) },
+              { key: 'ece', label: 'écart annoncé / réel (ECE)', num: true, render: (r) => num(r.ece, 4) },
+              { key: 'mp', label: 'proba moyenne annoncée', num: true, render: (r) => num(r.mean_pred, 3) }]} rows={calRows} />
+            <Chart height={340} data={[
+              { x: [0, 1], y: [0, 1], mode: 'lines', name: 'calibration parfaite', line: { dash: 'dot', color: '#9ca3af' } },
+              ...calRows.map((r, i) => ({
+                x: r.bins.map((b) => b.mean_pred), y: r.bins.map((b) => b.frac_pos), mode: 'lines+markers',
+                name: CAL_LABEL[r.key], line: { color: COLORS[i] },
+              })),
+            ]} layout={{
+              xaxis: { title: { text: 'probabilité annoncée' }, range: [0, 1] },
+              yaxis: { title: { text: 'taux de défaut réel' }, range: [0, 1] },
+            }} />
+            <p className="muted small">
+              Chaque point est un groupe de clients de même effectif. Plus la courbe est proche de la diagonale, plus les
+              probabilités sont vraies. Test utilisé : {cal.test_set_used ? 'oui' : 'non'}.
             </p>
           </>
         )}

@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import calibration as CAL
 from . import data as D
 from . import explain as X
 from . import metrics as MT
@@ -223,6 +224,23 @@ def compare(req: CompareReq, s: Session = Depends(sess_dep)):
     specs = [{"name": m.name, "params": m.params} for m in req.models]
     return guard(lambda: V.cross_validate(s, specs, req.n_splits, req.n_repeats, balance=req.balance,
                                           max_rows=req.max_rows))
+
+
+class CalibReq(BaseModel):
+    model: ModelSpec
+    balance: bool = False
+    n_splits: int = Field(5, ge=3, le=10)
+    max_rows: int = Field(20000, ge=1000, le=100000)
+
+
+@app.post("/api/models/calibration", tags=["modèles"])
+def calibration(req: CalibReq, s: Session = Depends(sess_dep)):
+    """Mesure la fiabilité des probabilités (Brier, courbe de fiabilité) sur le lot d'apprentissage SEUL."""
+    need_prep(s)
+    if req.model.name not in MD.CATALOG:
+        raise HTTPException(400, f"Modèle inconnu : {req.model.name}")
+    spec = {"name": req.model.name, "params": req.model.params}
+    return guard(lambda: CAL.calibration_report(s, spec, req.n_splits, balance=req.balance, max_rows=req.max_rows))
 
 
 # ------------------------------------------------------------------ module 4

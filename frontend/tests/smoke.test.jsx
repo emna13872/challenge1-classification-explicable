@@ -42,6 +42,11 @@ describe('parcours complet', () => {
     await screen.findByText('meilleur', {}, T)
     expect(document.body.textContent).toMatch(/Test utilisé : non/)
 
+    // Calibration : la carte doit afficher les trois versions et rappeler que le test n'a pas servi.
+    await user.click(screen.getByRole('button', { name: /Mesurer la fiabilité/ }))
+    await screen.findByText(/sigmoïde \(Platt\)/, {}, T)
+    await waitFor(() => expect(document.body.textContent).toMatch(/Brier de référence/), T)
+
     await user.click(screen.getByRole('button', { name: /Évaluer et comparer/ }))
     await screen.findByText('Tableau comparatif des modèles', {}, T)
     await screen.findByText(/Matrice de confusion/, {}, T)

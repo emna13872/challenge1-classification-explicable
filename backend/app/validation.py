@@ -8,7 +8,7 @@ import time
 import numpy as np
 from sklearn.base import clone
 from sklearn.metrics import average_precision_score, roc_auc_score
-from sklearn.model_selection import RepeatedStratifiedKFold, train_test_split
+from sklearn.model_selection import RepeatedStratifiedKFold, StratifiedKFold, train_test_split
 
 from . import models as MD
 from .prep import ScaleFirst
@@ -84,3 +84,28 @@ def cross_validate(sess: Session, specs: list[dict], n_splits: int = 5, n_repeat
             "settings": {"n_splits": n_splits, "n_repeats": n_repeats, "n_fits_per_model": n_splits * n_repeats,
                          "n_rows_used": int(len(y)), "balance": balance, "refit_prep": refit_prep},
             "test_set_used": False}
+
+
+def oof_predictions(sess: Session, spec: dict, n_splits: int = 5, seed: int = 0, balance: bool = False,
+                    max_rows: int = 20000) -> tuple[np.ndarray, np.ndarray]:
+    """Probabilités « hors-pli » : chaque client est noté par un modèle qui ne l'a JAMAIS vu apprendre.
+
+    Même règle que cross_validate : lot d'apprentissage seul, préparation réajustée à chaque pli.
+    Retourne (y, p) alignés ; ce sont les seules probabilités honnêtes dont on dispose avant le test.
+    """
+    if sess.X_train_raw is None:
+        raise ValueError("Préparez d'abord les données (module 2).")
+    X, y = _subsample(sess.X_train_raw, sess.y_train, max_rows, seed)
+    p = np.full(len(y), np.nan)
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    for tr, va in cv.split(X, y):
+        imp = clone(sess.imp)
+        Mtr = imp.fit_transform(X.iloc[tr]).astype(float)
+        Mva = imp.transform(X.iloc[va]).astype(float)
+        sc = ScaleFirst(sess.prep_cfg.get("scaling", "standard"), sess.n_num).fit(Mtr)
+        ytr = y[tr]
+        pos_w = float((ytr == 0).sum() / max(1, (ytr == 1).sum()))
+        est = MD.make(spec["name"], spec.get("params"), balance, pos_w)
+        est.fit(sc.transform(Mtr), ytr)
+        p[va] = est.predict_proba(sc.transform(Mva))[:, 1]
+    return y, p
