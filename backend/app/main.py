@@ -18,6 +18,7 @@ from . import metrics as MT
 from . import models as MD
 from . import prep as P
 from . import reasons as RS
+from . import recourse as RC
 from . import validation as V
 from .state import Session, clean, get_session
 
@@ -365,6 +366,26 @@ def decision_reasons(req: ReasonsReq, s: Session = Depends(sess_dep)):
     if req.test_index is None and req.record is None:
         raise HTTPException(400, "Fournissez test_index ou record.")
     return guard(lambda: RS.decision_reasons(s, req.model, req.threshold, req.test_index, req.record, req.top))
+
+
+class RecourseReq(BaseModel):
+    model: str
+    threshold: float = Field(0.5, gt=0, lt=1)
+    test_index: int | None = None
+    record: dict | None = None
+    actionable: dict[str, str] | None = Field(None, description="variable -> sens autorisé (up, down, both)")
+    max_changes: int = Field(2, ge=1, le=2)
+    n_options: int = Field(3, ge=1, le=5)
+
+
+@app.post("/api/decision/recourse", tags=["décision"])
+def decision_recourse(req: RecourseReq, s: Session = Depends(sess_dep)):
+    """Conseils réalistes pour passer de « refus » à « accord » : variables modifiables seulement, vérifiés par le modèle."""
+    need_model(s, req.model)
+    if req.test_index is None and req.record is None:
+        raise HTTPException(400, "Fournissez test_index ou record.")
+    return guard(lambda: RC.recourse(s, req.model, req.threshold, req.test_index, req.record, req.actionable,
+                                     req.max_changes, req.n_options))
 
 
 # ------------------------------------------------------------------ interface web (build React)
