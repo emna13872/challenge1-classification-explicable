@@ -17,6 +17,10 @@ export default function ModelsTab() {
   const [calSt, runCal] = useAction()
   const [cal, setCal] = useState(null)
   const [calModel, setCalModel] = useState('')
+  const [thrSt, runThr] = useAction()
+  const [thr, setThr] = useState(null)
+  const [costFn, setCostFn] = useState(5)
+  const [costFp, setCostFp] = useState(1)
 
   useEffect(() => {
     get('/api/models/catalog').then((c) => {
@@ -62,6 +66,21 @@ export default function ModelsTab() {
       model: { name: calName, params: sel[calName].params },
     }))
   })
+  // Seuil de décision choisi par le coût des erreurs (lot d'apprentissage seul, jamais le test).
+  const decide = () => runThr(async () => {
+    setThr(await post('/api/models/threshold', {
+      balance, cost_fn: Number(costFn), cost_fp: Number(costFp),
+      model: { name: calName, params: sel[calName].params },
+    }))
+  })
+  const pc = (v) => (v == null ? '–' : (v * 100).toFixed(1) + ' %')
+  const thrRows = thr ? [
+    { k: 'Accepter tout le monde', cost: thr.accept_all, refuse: 0, recall: 0, precision: null },
+    { k: 'Refuser tout le monde', cost: thr.refuse_all, refuse: 1, recall: 1, precision: thr.base_rate },
+    { k: 'Seuil 50 % (par habitude)', cost: thr.at_half.cost, refuse: thr.at_half.refuse_rate, recall: thr.at_half.recall, precision: thr.at_half.precision },
+    { k: `Seuil théorique ${num(thr.theoretical_threshold, 3)}`, cost: thr.at_theoretical.cost, refuse: thr.at_theoretical.refuse_rate, recall: thr.at_theoretical.recall, precision: thr.at_theoretical.precision },
+    { k: `Meilleur seuil observé ${num(thr.best.threshold, 2)}`, cost: thr.best.cost, refuse: thr.best.refuse_rate, recall: thr.best.recall, precision: thr.best.precision },
+  ] : []
   const calRows = cal ? Object.entries(cal.methods).map(([k, m]) => ({ key: k, ...m })) : []
 
   const cvRows = cv ? Object.entries(cv.models)
@@ -161,6 +180,58 @@ export default function ModelsTab() {
             <p className="muted small">
               Chaque point est un groupe de clients de même effectif. Plus la courbe est proche de la diagonale, plus les
               probabilités sont vraies. Test utilisé : {cal.test_set_used ? 'oui' : 'non'}.
+            </p>
+          </>
+        )}
+      </Card>
+
+      <Card title="Quel seuil de décision ? (choix par le coût des erreurs)">
+        <p className="muted">
+          Deux erreurs ne coûtent pas le même prix : accorder un crédit à un client qui fait défaut (cas manqué), ou refuser
+          un client qui aurait remboursé (fausse alerte). Indiquez ces deux coûts, dans la même unité (ce sont des
+          hypothèses métier : à remplacer par les chiffres réels de la banque). Avec des probabilités fiables, on refuse
+          dès que la probabilité dépasse <b>coût de la fausse alerte / (coût de la fausse alerte + coût du cas manqué)</b>.
+        </p>
+        <div className="row">
+          <label className="inline">Modèle&nbsp;
+            <select value={calName} onChange={(e) => setCalModel(e.target.value)} disabled={chosen.length === 0}>
+              {chosen.map(([k]) => <option key={k} value={k}>{catalog[k].label}</option>)}
+            </select>
+          </label>
+          <label className="inline">Coût d'un cas manqué&nbsp;
+            <input type="number" min="0.01" step="0.5" value={costFn} onChange={(e) => setCostFn(e.target.value)} style={{ width: 80 }} />
+          </label>
+          <label className="inline">Coût d'une fausse alerte&nbsp;
+            <input type="number" min="0.01" step="0.5" value={costFp} onChange={(e) => setCostFp(e.target.value)} style={{ width: 80 }} />
+          </label>
+          <button onClick={decide} disabled={thrSt.loading || !calName || !prep || !(costFn > 0) || !(costFp > 0)}>Chercher le meilleur seuil</button>
+        </div>
+        <Status state={thrSt} busy="Calcul du coût pour chaque seuil…" />
+        {thr && (
+          <>
+            <Notice kind="info">
+              Seuil retenu : <b>{num(thr.best.threshold, 2)}</b> (théorie : {num(thr.theoretical_threshold, 3)}).
+              Coût moyen par dossier : {num(thr.best.cost, 3)} contre {num(thr.at_half.cost, 3)} avec le seuil de 50 %.
+              Probabilités utilisées : {CAL_LABEL[thr.calibration_used]}.
+            </Notice>
+            <Table maxHeight={260} columns={[
+              { key: 'k', label: 'stratégie' },
+              { key: 'cost', label: 'coût moyen par dossier', num: true, render: (r) => num(r.cost, 3) },
+              { key: 'refuse', label: 'dossiers refusés', num: true, render: (r) => pc(r.refuse) },
+              { key: 'recall', label: 'défauts repérés (rappel)', num: true, render: (r) => pc(r.recall) },
+              { key: 'precision', label: 'refus justifiés (précision)', num: true, render: (r) => pc(r.precision) }]} rows={thrRows} />
+            <Chart height={320} data={[
+              { x: thr.curve.map((r) => r.threshold), y: thr.curve.map((r) => r.cost), mode: 'lines', name: 'coût moyen par dossier', line: { color: COLORS[0] } },
+              { x: [thr.theoretical_threshold], y: [thr.at_theoretical.cost], mode: 'markers', name: 'seuil théorique', marker: { size: 11, color: COLORS[3] } },
+              { x: [thr.best.threshold], y: [thr.best.cost], mode: 'markers', name: 'meilleur observé', marker: { size: 11, symbol: 'diamond', color: COLORS[2] } },
+              { x: [0.5], y: [thr.at_half.cost], mode: 'markers', name: 'seuil 50 %', marker: { size: 11, symbol: 'x', color: '#dc2626' } },
+            ]} layout={{
+              xaxis: { title: { text: 'seuil : on refuse si la probabilité de défaut dépasse' }, range: [0, 1] },
+              yaxis: { title: { text: 'coût moyen par dossier' } },
+            }} />
+            <p className="muted small">
+              Calculé sur {thr.settings.n_rows_used} dossiers d'apprentissage, avec des probabilités hors-pli. Test utilisé : {thr.test_set_used ? 'oui' : 'non'}.
+              Si « refuser tout le monde » coûte autant que le meilleur seuil, le modèle n'apporte rien avec ces coûts.
             </p>
           </>
         )}

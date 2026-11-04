@@ -47,6 +47,11 @@ describe('parcours complet', () => {
     await screen.findByText(/sigmoïde \(Platt\)/, {}, T)
     await waitFor(() => expect(document.body.textContent).toMatch(/Brier de référence/), T)
 
+    // Seuil de décision par le coût : le tableau compare le seuil de 50 % au meilleur seuil.
+    await user.click(screen.getByRole('button', { name: /Chercher le meilleur seuil/ }))
+    await screen.findByText(/Seuil 50 % \(par habitude\)/, {}, T)
+    await waitFor(() => expect(document.body.textContent).toMatch(/Seuil retenu/), T)
+
     await user.click(screen.getByRole('button', { name: /Évaluer et comparer/ }))
     await screen.findByText('Tableau comparatif des modèles', {}, T)
     await screen.findByText(/Matrice de confusion/, {}, T)

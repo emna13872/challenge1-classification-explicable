@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from . import calibration as CAL
 from . import data as D
+from . import decision as DEC
 from . import explain as X
 from . import metrics as MT
 from . import models as MD
@@ -241,6 +242,26 @@ def calibration(req: CalibReq, s: Session = Depends(sess_dep)):
         raise HTTPException(400, f"Modèle inconnu : {req.model.name}")
     spec = {"name": req.model.name, "params": req.model.params}
     return guard(lambda: CAL.calibration_report(s, spec, req.n_splits, balance=req.balance, max_rows=req.max_rows))
+
+
+class ThresholdReq(BaseModel):
+    model: ModelSpec
+    cost_fn: float = Field(5.0, gt=0, description="coût d'un cas manqué (crédit accordé à un client qui fait défaut)")
+    cost_fp: float = Field(1.0, gt=0, description="coût d'une fausse alerte (client sain refusé)")
+    balance: bool = False
+    n_splits: int = Field(5, ge=3, le=10)
+    max_rows: int = Field(20000, ge=1000, le=100000)
+
+
+@app.post("/api/models/threshold", tags=["modèles"])
+def threshold(req: ThresholdReq, s: Session = Depends(sess_dep)):
+    """Seuil de décision qui minimise le coût des erreurs, sur le lot d'apprentissage SEUL (jamais le test)."""
+    need_prep(s)
+    if req.model.name not in MD.CATALOG:
+        raise HTTPException(400, f"Modèle inconnu : {req.model.name}")
+    spec = {"name": req.model.name, "params": req.model.params}
+    return guard(lambda: DEC.decision_report(s, spec, req.cost_fn, req.cost_fp, req.n_splits,
+                                             balance=req.balance, max_rows=req.max_rows))
 
 
 # ------------------------------------------------------------------ module 4

@@ -62,15 +62,26 @@ def _metrics(y, p) -> dict:
     return {"brier": brier(y, p), "ece": ece(bins), "mean_pred": float(np.mean(p)), "bins": bins}
 
 
+def oof_by_method(sess: Session, spec: dict, n_splits: int = 5, seed: int = 0, balance: bool = False,
+                  max_rows: int = 20000) -> tuple[np.ndarray, dict]:
+    """Probabilités hors-pli sous les trois versions : brute, sigmoïde, isotonique (lot d'apprentissage seul)."""
+    y, p = V.oof_predictions(sess, spec, n_splits=n_splits, seed=seed, balance=balance, max_rows=max_rows)
+    return y, {"raw": p, "sigmoid": _calibrate_cv(y, p, "sigmoid", n_splits, seed),
+               "isotonic": _calibrate_cv(y, p, "isotonic", n_splits, seed)}
+
+
+def pick_best(y, probs: dict) -> str:
+    """La version au Brier le plus bas ; la brute si le gain est négligeable."""
+    scores = {k: brier(y, v) for k, v in probs.items()}
+    best = min(scores, key=scores.get)
+    return "raw" if scores["raw"] - scores[best] < MIN_GAIN else best
+
+
 def calibration_report(sess: Session, spec: dict, n_splits: int = 5, seed: int = 0, balance: bool = False,
                        max_rows: int = 20000) -> dict:
-    y, p = V.oof_predictions(sess, spec, n_splits=n_splits, seed=seed, balance=balance, max_rows=max_rows)
-    methods = {"raw": _metrics(y, p)}
-    for m in ("sigmoid", "isotonic"):
-        methods[m] = _metrics(y, _calibrate_cv(y, p, m, n_splits, seed))
-    best = min(methods, key=lambda k: methods[k]["brier"])
-    if methods["raw"]["brier"] - methods[best]["brier"] < MIN_GAIN:
-        best = "raw"
+    y, probs = oof_by_method(sess, spec, n_splits, seed, balance, max_rows)
+    methods = {k: _metrics(y, v) for k, v in probs.items()}
+    best = pick_best(y, probs)
     rate = float(np.mean(y))
     return {"model": spec["name"], "label": MD.CATALOG[spec["name"]]["label"], "methods": methods,
             "recommended": best, "base_rate": rate, "base_brier": rate * (1 - rate),
