@@ -37,6 +37,11 @@ describe('parcours complet', () => {
     await user.click(await screen.findByRole('button', { name: /Entraîner 5 modèle/ }))
     await screen.findByText('Modèles entraînés', {}, T)
 
+    // Comparaison par validation croisée : un « meilleur » doit apparaître, et le test ne doit pas avoir servi.
+    await user.click(screen.getByRole('button', { name: /Comparer 5 modèle/ }))
+    await screen.findByText('meilleur', {}, T)
+    expect(document.body.textContent).toMatch(/Test utilisé : non/)
+
     await user.click(screen.getByRole('button', { name: /Évaluer et comparer/ }))
     await screen.findByText('Tableau comparatif des modèles', {}, T)
     await screen.findByText(/Matrice de confusion/, {}, T)

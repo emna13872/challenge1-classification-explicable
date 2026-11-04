@@ -9,6 +9,8 @@ export default function ModelsTab() {
   const [sel, setSel] = useState({})
   const [balance, setBalance] = useState(false)
   const [st, run] = useAction()
+  const [cvSt, runCv] = useAction()
+  const [cv, setCv] = useState(null)
 
   useEffect(() => {
     get('/api/models/catalog').then((c) => {
@@ -38,6 +40,18 @@ export default function ModelsTab() {
     await refreshEval()
   })
 
+  // Compare les modèles cochés par validation croisée répétée : le lot de test n'est JAMAIS utilisé ici.
+  const compare = () => runCv(async () => {
+    setCv(await post('/api/models/compare', {
+      balance,
+      models: chosen.map(([name, v]) => ({ name, params: v.params })),
+    }))
+  })
+
+  const cvRows = cv ? Object.entries(cv.models)
+    .sort((a, b) => b[1].auc.mean - a[1].auc.mean)
+    .map(([name, m]) => ({ name, ...m })) : []
+
   return (
     <div className="stack">
       <Card title="Choix des modèles et des hyperparamètres">
@@ -61,6 +75,31 @@ export default function ModelsTab() {
         <label className="inline"><input type="checkbox" checked={balance} onChange={(e) => setBalance(e.target.checked)} /> Rééquilibrer les classes (poids de classe / scale_pos_weight) — utile si la classe positive est rare</label>
         <div className="row"><button className="primary" onClick={train} disabled={st.loading || chosen.length === 0}>Entraîner {chosen.length} modèle(s)</button></div>
         <Status state={st} busy="Entraînement en cours (l'optimisation peut prendre quelques dizaines de secondes)…" />
+      </Card>
+
+      <Card title="Quel modèle choisir ? Comparaison par validation croisée">
+        <p className="muted">
+          Chaque modèle coché est entraîné et noté plusieurs fois sur des découpages différents du lot d'apprentissage
+          (validation croisée stratifiée répétée). On regarde la moyenne et l'écart-type de l'AUC. Un modèle « à égalité »
+          est à moins d'un écart-type du meilleur : l'écart n'est pas assez grand pour être crédible.
+          <b> Le lot de test n'est pas utilisé ici</b> : il reste intact pour la note finale.
+        </p>
+        <div className="row"><button onClick={compare} disabled={cvSt.loading || chosen.length < 2 || !prep}>Comparer {chosen.length} modèle(s)</button></div>
+        <Status state={cvSt} busy="Validation croisée en cours (quelques dizaines de secondes sur un grand jeu)…" />
+        {cv && (
+          <>
+            <Table maxHeight={300} columns={[
+              { key: 'label', label: 'modèle' },
+              { key: 'auc', label: 'AUC moyenne ± écart-type', render: (r) => `${num(r.auc.mean, 4)} ± ${num(r.auc.std, 4)}` },
+              { key: 'pr', label: 'PR-AUC moyenne', num: true, render: (r) => num(r.pr_auc.mean, 4) },
+              { key: 'verdict', label: 'verdict', render: (r) => (r.best ? 'meilleur' : r.tied_with_best ? 'à égalité avec le meilleur' : 'moins bon') },
+              { key: 'seconds', label: 'temps (s)', num: true }]} rows={cvRows} />
+            <p className="muted small">
+              {cv.settings.n_splits} plis × {cv.settings.n_repeats} répétitions = {cv.settings.n_fits_per_model} notes par modèle,
+              sur {cv.settings.n_rows_used} observations d'apprentissage. Test utilisé : {cv.test_set_used ? 'oui' : 'non'}.
+            </p>
+          </>
+        )}
       </Card>
 
       {trained.length > 0 && (
