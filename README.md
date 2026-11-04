@@ -18,6 +18,7 @@ Une application web (React) appuyée sur une API FastAPI : elle télécharge les
 | Déploiement | `Dockerfile` (Hugging Face Spaces, Docker) |
 | Liens de déploiement et captures d'écran | **à compléter** (voir plus bas) |
 | One-pager PDF | `docs/one-pager.pdf` |
+| CreditLens (branche `creditlens`) : risque crédit fiable, motifs de refus, recours, audit | `docs/creditlens-phases-a-b.md` |
 
 ## Les six modules
 
@@ -48,7 +49,7 @@ Pour tout servir depuis FastAPI : `cd frontend && npm run build`, puis ouvrir `h
 
 ```bash
 pip install -r backend/requirements-dev.txt
-cd backend && pytest -q                  # 16 tests de bout en bout sur le vrai jeu Telco (accès Internet requis)
+cd backend && pytest -q                  # 95 tests (Telco par Internet ; Taïwan et fraude si les fichiers sont dans data/, sinon ignorés)
 cd frontend && npm test                  # parcours des 6 onglets contre l'API lancée sur le port 8000
 ```
 
