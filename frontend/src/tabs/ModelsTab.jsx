@@ -3,11 +3,12 @@ import { useApp } from '../App.jsx'
 import { get, post } from '../api.js'
 import { Card, Table, Notice, useAction, Status, Stat, num } from '../ui.jsx'
 import Chart, { COLORS } from '../Chart.jsx'
+import FraudCard from './FraudCard.jsx'
 
 const CAL_LABEL = { raw: 'brute (sans correction)', sigmoid: 'sigmoïde (Platt)', isotonic: 'isotonique' }
 
 export default function ModelsTab() {
-  const { prep, trained, setTrained, refreshEval, goTo, setThreshold } = useApp()
+  const { prep, trained, setTrained, refreshEval, goTo, setThreshold, summary } = useApp()
   const [catalog, setCatalog] = useState(null)
   const [sel, setSel] = useState({})
   const [balance, setBalance] = useState(false)
@@ -309,6 +310,8 @@ export default function ModelsTab() {
           </>
         )}
       </Card>
+
+      {prep && summary?.columns?.some((c) => c.name === 'Amount') && <FraudCard />}
 
       {trained.length > 0 && (
         <Card title="Modèles entraînés">

@@ -65,6 +65,8 @@ def audit(sess: Session, name: str, thr: float, max_clients: int | None = 400, s
     refused = np.where(p >= thr)[0]
     out = {"threshold": float(thr), "n_test": int(len(p)), "n_refused": int(len(refused)),
            "share_refused": float(len(refused) / max(1, len(p))), "caveat": RC.CAVEAT}
+    if sess.name in RC.NOT_APPLICABLE:
+        return {**out, "status": "not_applicable", "reason": RC.NOT_APPLICABLE[sess.name], "n_audited": 0}
     if len(refused) == 0:
         return {**out, "status": "no_refused", "n_audited": 0}
     sampled = max_clients is not None and len(refused) > max_clients

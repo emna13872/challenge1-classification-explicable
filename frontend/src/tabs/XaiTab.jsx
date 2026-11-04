@@ -200,6 +200,7 @@ function Local({ model }) {
 }
 
 const RECOURSE_NOTE = {
+  not_applicable: null,
   already_accepted: 'Ce client est déjà accepté au seuil choisi : aucun changement nécessaire.',
   no_actionable: "Aucune variable modifiable n'est déclarée pour ce jeu de données : l'application ne propose pas de conseil plutôt que d'en inventer un.",
 }
@@ -237,6 +238,7 @@ function DecisionResult({ d }) {
             et font l'objet de l'audit d'équité (vue « Variables sensibles et équité »).
           </Notice>
         )}
+        {r.note && <Notice kind="warn">{r.note}</Notice>}
         <p className="muted small">
           Ces motifs décrivent ce que le modèle a appris (des corrélations), pas des causes. Les contributions s'additionnent
           jusqu'à la prédiction (écart de contrôle : {r.additivity_gap.toExponential(1)}).
@@ -245,6 +247,7 @@ function DecisionResult({ d }) {
 
       <Card title="Que changer pour être accepté ?">
         {RECOURSE_NOTE[c.status] && <Notice kind="info">{RECOURSE_NOTE[c.status]}</Notice>}
+        {c.status === 'not_applicable' && <Notice kind="info">{c.reason}</Notice>}
         {c.status === 'found' && (
           <ol className="options">
             {c.options.map((o, i) => <li key={i}>{o.text}</li>)}
@@ -426,6 +429,7 @@ function RecourseAudit({ model }) {
 
 function AuditResult({ a }) {
   if (a.status === 'no_refused') return <Notice kind="info">Aucun client refusé à ce seuil : rien à auditer.</Notice>
+  if (a.status === 'not_applicable') return <Notice kind="info">{a.reason}</Notice>
   if (a.status === 'no_actionable') return <Notice kind="info">Aucune variable modifiable n'est déclarée pour ce jeu de données : pas de conseil, donc pas d'audit.</Notice>
   const e = a.effort
   const vars = Object.entries(e.variables_used || {})

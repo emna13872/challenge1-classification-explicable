@@ -51,9 +51,22 @@ def build(sess: Session, cfg: dict):
         raise ValueError("La cible ne contient qu'une seule classe après filtrage.")
 
     test_size = float(cfg.get("test_size", 0.25))
-    strat = y if cfg.get("stratify", True) else None
-    Xtr, Xte, ytr, yte = train_test_split(
-        X, y, test_size=test_size, random_state=int(cfg.get("random_state", 42)), stratify=strat)
+    tcol = cfg.get("time_column")
+    if tcol:
+        # Découpage TEMPOREL : on apprend sur le passé, on teste sur le futur (les plus récents = le test).
+        # C'est la situation réelle d'un modèle en production ; un découpage au hasard mélangerait les deux.
+        if tcol not in df.columns or not pd.api.types.is_numeric_dtype(df[tcol]):
+            raise ValueError(f"Colonne de temps « {tcol} » absente ou non numérique.")
+        order = df.loc[X.index, tcol].sort_values(kind="mergesort").index
+        cut = int(round(len(order) * (1 - test_size)))
+        tr_idx, te_idx = order[:cut], order[cut:]
+        Xtr, Xte, ytr, yte = X.loc[tr_idx], X.loc[te_idx], y.loc[tr_idx], y.loc[te_idx]
+        if ytr.nunique() < 2 or yte.nunique() < 2:
+            raise ValueError("Le découpage temporel laisse une seule classe d'un côté : changez la part du test.")
+    else:
+        strat = y if cfg.get("stratify", True) else None
+        Xtr, Xte, ytr, yte = train_test_split(
+            X, y, test_size=test_size, random_state=int(cfg.get("random_state", 42)), stratify=strat)
 
     num_cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     cat_cols = [c for c in X.columns if c not in num_cols]
@@ -95,11 +108,15 @@ def build(sess: Session, cfg: dict):
     sess.Z_train, sess.Z_test = scaler.transform(M_train), scaler.transform(M_test)
     sess.models, sess.cache = {}, {}
     sess.test_openings, sess.final = 0, None        # nouveau découpage : le lot de test est de nouveau vierge
+    sess.fraud_choice, sess.fraud_final = None, None
     return {
         "n_train": len(Xtr), "n_test": len(Xte), "n_features_in": len(feats),
         "n_features_encoded": len(names), "numeric": num_cols, "categorical": cat_cols,
         "train_pos_rate": float(ytr.mean()), "test_pos_rate": float(yte.mean()),
         "dropped_rows": int((~keep).sum()), "encoded_names": names,
+        "split": "temporal" if tcol else "random", "time_column": tcol or None,
+        **({"train_time_max": float(df.loc[Xtr.index, tcol].max()),
+            "test_time_min": float(df.loc[Xte.index, tcol].min())} if tcol else {}),
     }
 
 

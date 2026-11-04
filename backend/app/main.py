@@ -20,6 +20,7 @@ from . import prep as P
 from . import reasons as RS
 from . import recourse as RC
 from . import recourse_audit as RA
+from . import fraud as FR
 from . import validation as V
 from .state import Session, clean, get_session
 
@@ -169,6 +170,7 @@ class PrepReq(BaseModel):
     test_size: float = Field(0.25, gt=0.05, lt=0.6)
     random_state: int = 42
     stratify: bool = True
+    time_column: str | None = Field(None, description="colonne de temps : découpage temporel (test = les plus récents)")
 
 
 @app.post("/api/prep", tags=["préparation"])
@@ -402,6 +404,32 @@ def decision_audit(req: AuditReq, s: Session = Depends(sess_dep)):
     """Audit du recours sur l'ensemble des clients refusés : part avec conseil, effort demandé, équité par groupe."""
     need_model(s, req.model)
     return guard(lambda: RA.audit(s, req.model, req.threshold, req.max_clients, 0, req.actionable, req.max_changes))
+
+
+# ------------------------------------------------------------------ fraude (phase C)
+class FraudReq(BaseModel):
+    review_cost: float = Field(5.0, gt=0, description="coût d'une vérification (même unité que le montant)")
+    amount_column: str = "Amount"
+    n_splits: int = Field(4, ge=2, le=8)
+    variants: list[tuple[str, bool]] | None = Field(None, description="(modèle, rééquilibrer ?) ; défaut : logreg et xgb, avec et sans")
+
+
+class FraudFinalReq(FraudReq):
+    force: bool = False
+
+
+@app.post("/api/fraud/report", tags=["fraude"])
+def fraud_report(req: FraudReq, s: Session = Depends(sess_dep)):
+    """Compare modèles et stratégies d'alerte sur l'apprentissage seul (validation glissante dans le temps)."""
+    need_prep(s)
+    return guard(lambda: FR.fraud_report(s, req.variants, req.review_cost, req.n_splits, req.amount_column))
+
+
+@app.post("/api/fraud/final", tags=["fraude"])
+def fraud_final(req: FraudFinalReq, s: Session = Depends(sess_dep)):
+    """Décide sur l'apprentissage, puis ouvre le lot de test une seule fois (ouverture comptée)."""
+    need_prep(s)
+    return guard(lambda: FR.fraud_final(s, req.review_cost, req.variants, req.n_splits, req.amount_column, req.force))
 
 
 # ------------------------------------------------------------------ interface web (build React)

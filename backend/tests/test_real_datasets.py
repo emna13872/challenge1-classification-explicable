@@ -63,8 +63,17 @@ def test_find_local_looks_in_one_subfolder(monkeypatch, tmp_path):
 
 
 # ------------------------------------------------------------- intégration (fichier réel requis)
-taiwan_present = any((D.DATA_DIR / f).exists() for f in D.PRESETS["taiwan_credit"]["files"])
-fraud_present = (D.DATA_DIR / "creditcard.csv").exists()
+def _present(key: str) -> bool:
+    """Même recherche que l'application : dans data/ ou un sous-dossier (ex. data/creditlens/)."""
+    try:
+        D._find_local(D.PRESETS[key]["files"])
+        return True
+    except FileNotFoundError:
+        return False
+
+
+taiwan_present = _present("taiwan_credit")
+fraud_present = _present("ulb_fraud")
 
 
 @pytest.mark.skipif(not taiwan_present, reason="fichier Taïwan absent de data/")
@@ -89,6 +98,29 @@ def test_fraud_real_file():
     assert s["n_rows"] == 284807 and s["target"] == "Class"
     assert round(s["positive_rate"] * s["n_rows"]) == 492     # 492 fraudes (0,172 %)
     assert s["imbalanced"]
+
+
+@pytest.mark.skipif(not fraud_present, reason="creditcard.csv absent de data/")
+def test_fraud_end_to_end():
+    """Phase C sur le vrai fichier : découpage temporel, choix sur l'apprentissage, test ouvert une fois."""
+    h = {"X-Session-Id": "pytest-real-fraud"}
+    s = c.post("/api/data/load", json={"dataset": "ulb_fraud"}, headers=h).json()
+    feats = [col["name"] for col in s["columns"] if col["name"] not in ("Class", "Time")]
+    p = c.post("/api/prep", json={"features": feats, "time_column": "Time"}, headers=h)
+    assert p.status_code == 200, p.text
+    assert p.json()["train_time_max"] < p.json()["test_time_min"]           # le test est dans le futur
+    r = c.post("/api/fraud/report", json={"review_cost": 5, "variants": [["xgb", False], ["xgb", True]]}, headers=h)
+    assert r.status_code == 200, r.text
+    rep = r.json()
+    assert rep["settings"]["temporal"] and not rep["test_set_used"]
+    xgb = next(v for v in rep["variants"] if v["key"] == "xgb")
+    assert xgb["accuracy_accept_all"] > 0.998                                # le piège de l'exactitude
+    assert xgb["pr_auc"] > 0.6 and 0.5 < xgb["calibration"]["ratio"] < 2     # mesuré : 0,79 et 0,9
+    f = c.post("/api/fraud/final", json={"review_cost": 5, "variants": [["xgb", False], ["xgb", True]]}, headers=h).json()
+    assert f["openings"] == 1 and f["test"]["pr_auc"] > 0.6
+    assert f["test"]["chosen"]["saved_share"] > 0.5                          # mesuré : 77,7 %
+    again = c.post("/api/fraud/final", json={"review_cost": 5}, headers=h).json()
+    assert again["already_opened"] and again["openings"] == 1               # pas de seconde lecture
 
 
 @pytest.mark.skipif(not taiwan_present, reason="fichier Taïwan absent de data/")

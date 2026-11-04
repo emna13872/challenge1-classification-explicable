@@ -43,6 +43,13 @@ TIME_WINDOWS = {
 }
 HORIZONS = (1, 3, 6)          # dans combien de mois le client pourrait refaire une demande
 
+# Jeux où un conseil serait NUISIBLE : expliquer comment passer sous le seuil apprendrait à contourner le modèle.
+NOT_APPLICABLE = {
+    "ulb_fraud": ("Pas de conseil pour une transaction suspecte : dire comment passer sous le seuil apprendrait "
+                  "aux fraudeurs à contourner le modèle. Le bon recours ici est humain (le client confirme la "
+                  "transaction auprès de sa banque)."),
+}
+
 CAVEAT = ("Ce conseil décrit ce qui ferait changer la réponse du modèle. Il ne garantit ni le comportement futur "
           "du client ni la décision finale de la banque.")
 SPARSITY_PENALTY = 0.02       # coût d'une variable de plus : à effet égal, on préfère changer moins de choses
@@ -221,6 +228,11 @@ def future_recourse(sess: Session, name: str, thr: float, test_index=None, recor
 def recourse(sess: Session, name: str, thr: float, test_index=None, record=None, actionable=None,
              max_changes: int = 2, n_options: int = 3, n_candidates: int = 30, max_percentile: float = 0.95) -> dict:
     _check(sess, name, thr)
+    if sess.name in NOT_APPLICABLE:
+        _, Z, _, _ = X.client_matrices(sess, test_index, record)
+        return {"mode": "none", "status": "not_applicable", "reason": NOT_APPLICABLE[sess.name],
+                "probability": float(sess.models[name]["est"].predict_proba(Z)[0, 1]), "threshold": float(thr),
+                "options": [], "actionable": {}, "lowest_probability_found": None, "caveat": CAVEAT}
     if actionable is None and sess.name in TIME_WINDOWS:
         return future_recourse(sess, name, thr, test_index, record, max_percentile=max_percentile)
     if max_changes not in (1, 2):

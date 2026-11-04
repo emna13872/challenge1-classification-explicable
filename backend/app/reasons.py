@@ -29,6 +29,13 @@ def _friendly_taiwan() -> dict:
 
 LABELS = {"taiwan_credit": _friendly_taiwan()}
 
+# Mise en garde affichée avec les motifs, quand les variables ne sont pas lisibles par un humain.
+NOTES = {
+    "ulb_fraud": ("Les variables V1 à V28 sont des composantes anonymisées (ACP, analyse en composantes principales) : "
+                  "un motif comme « V14 très bas » n'a pas de sens métier pour un analyste. Seuls le montant et "
+                  "l'heure sont lisibles. Ces motifs servent au contrôle technique du modèle, pas à informer le client."),
+}
+
 
 def _label(sess: Session, col: str) -> str:
     return LABELS.get(sess.name, {}).get(col, col)
@@ -120,4 +127,5 @@ def decision_reasons(sess: Session, name: str, thr: float, test_index=None, reco
         "excluded_sensitive": excluded,
         "additivity_gap": abs(out_model - target),          # doit être ~0 : les contributions s'additionnent bien
         "n_variables": len(items),
+        "note": NOTES.get(sess.name),
     }

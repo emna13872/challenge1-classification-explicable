@@ -34,6 +34,9 @@ class Session:
         # évaluation finale : combien de fois le lot de test a-t-il été ouvert pour décider ?
         self.test_openings = 0
         self.final = None
+        # fraude (phase C) : choix fait sur l'apprentissage, puis résultat de l'unique ouverture du test
+        self.fraud_choice = None
+        self.fraud_final = None
 
 
 _SESSIONS: "OrderedDict[str, Session]" = OrderedDict()
