@@ -19,6 +19,7 @@ Une application web (React) appuyée sur une API FastAPI : elle télécharge les
 | Liens de déploiement et captures d'écran | **à compléter** (voir plus bas) |
 | One-pager PDF | `docs/one-pager.pdf` |
 | CreditLens (branche `creditlens`) : risque crédit fiable, motifs de refus, recours, audit | `docs/creditlens-phases-a-b.md` |
+| CreditLens : détection de fraude (découpage temporel, décision par le montant) | `docs/creditlens-phase-c-fraude.md` |
 
 ## Les six modules
 
@@ -49,7 +50,7 @@ Pour tout servir depuis FastAPI : `cd frontend && npm run build`, puis ouvrir `h
 
 ```bash
 pip install -r backend/requirements-dev.txt
-cd backend && pytest -q                  # 95 tests (Telco par Internet ; Taïwan et fraude si les fichiers sont dans data/, sinon ignorés)
+cd backend && pytest -q                  # 108 tests (Telco par Internet ; Taïwan et fraude si les fichiers sont dans data/ ou data/creditlens/, sinon ignorés)
 cd frontend && npm test                  # parcours des 6 onglets contre l'API lancée sur le port 8000
 ```
 
