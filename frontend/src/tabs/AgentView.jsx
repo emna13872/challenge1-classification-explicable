@@ -8,7 +8,7 @@ const STATUS = {
   'vérifié': ['ok', 'Vérifié : chaque nombre vient d\'un outil'],
   'corrigé': ['ok', 'Corrigé : un nombre inventé a été repris, la réponse finale est vérifiée'],
   'non vérifié': ['bad', 'Non vérifié : des nombres ne viennent d\'aucun outil (surlignés)'],
-  'sans outil': ['bad', 'Sans outil : l\'assistant a répondu de mémoire, réponse non fiable'],
+  'sans outil': ['bad', 'Sans outil : aucun outil n\'a vraiment été appelé (écrire « je vais appeler l\'outil » ne suffit pas), la réponse ne s\'appuie sur aucune donnée'],
   'sans réponse': ['bad', 'Sans réponse : l\'assistant n\'a rien écrit'],
   'interrompu': ['bad', 'Interrompu : trop d\'appels d\'outils sans réponse'],
 }
@@ -38,6 +38,7 @@ export default function AgentView({ model }) {
   const [status, setStatus] = useState(null)
   const [llm, setLlm] = useState('')
   const [q, setQ] = useState('Pourquoi le client n°12 est-il refusé ?')
+  const [mode, setMode] = useState('guided')
   const [res, setRes] = useState(null)
   const [st, run] = useAction()
   const [stSt, runSt] = useAction()
@@ -51,7 +52,7 @@ export default function AgentView({ model }) {
 
   const ask = () => run(async () => {
     setRes(null)
-    setRes(await post('/api/agent/ask', { question: q, model, threshold: Math.min(0.99, Math.max(0.01, threshold)), llm_model: llm || null }))
+    setRes(await post('/api/agent/ask', { question: q, model, mode, threshold: Math.min(0.99, Math.max(0.01, threshold)), llm_model: llm || null }))
   })
   const chatModels = (status?.models || []).filter((m) => !m.name.includes('embed'))
   const [kind, label] = res ? (STATUS[res.status] || ['bad', res.status]) : []
@@ -76,8 +77,19 @@ export default function AgentView({ model }) {
               <select value={llm} onChange={(e) => setLlm(e.target.value)}>
                 {chatModels.map((m) => <option key={m.name} value={m.name}>{m.name}{m.parameters ? ` · ${m.parameters}` : ''}{m.size_gb ? ` · ${m.size_gb} Go` : ''}</option>)}
               </select></label>
+            <label>Qui choisit les outils ?
+              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                <option value="guided">l'application (mode guidé, conseillé pour un petit modèle)</option>
+                <option value="agent">le LLM lui-même (mode agent)</option>
+              </select></label>
             <span className="muted small">Modèle expliqué : {model} · seuil {Math.round(threshold * 1000) / 10} %</span>
           </div>
+        )}
+        {status?.ok && (
+          <p className="muted small">
+            Mode guidé : l'application lit la question (n° de client, équité, fraude, seuil…), appelle elle-même les outils, et le LLM
+            ne fait que rédiger. Mode agent : le LLM décide quels outils appeler ; il faut un modèle assez grand pour le faire de façon fiable.
+          </p>
         )}
         <div className="row wrap">
           {suggestions(summary?.name).map((s) => <button key={s} className="small" onClick={() => setQ(s)}>{s}</button>)}
@@ -105,12 +117,12 @@ export default function AgentView({ model }) {
             <summary>Appels d'outils ({res.trace.length})</summary>
             {res.trace.map((t, i) => (
               <div key={i}>
-                <p className="small"><b>{i + 1}. {t.tool}</b>({JSON.stringify(t.arguments)})</p>
+                <p className="small"><b>{i + 1}. {t.tool}</b>({JSON.stringify(t.arguments)}){t.by === 'application' ? ' · choisi par l\'application' : ' · choisi par le LLM'}</p>
                 <pre style={{ maxHeight: 220 }}>{JSON.stringify(t.result, null, 2)}</pre>
               </div>
             ))}
           </details>
-          <p className="muted small">{res.llm.provider} · {res.llm.model} · {res.seconds} s au total</p>
+          <p className="muted small">{res.llm.provider} · {res.llm.model} · mode {res.mode} · {res.seconds} s au total</p>
         </Card>
       )}
     </>

@@ -274,9 +274,16 @@ def test_agent_routes():
         return f"Risque de {d['risque_annonce_pct']} % : {d['decision']}."
     app.dependency_overrides[get_llm_factory] = lambda: (lambda name=None: LLM.ScriptedClient([[("decision_client", {"numero": 0})], answer]))
     try:
-        r = c.post("/api/agent/ask", json={"question": "Et le client 0 ?", "model": "xgb", "threshold": 0.3}, headers=H)
+        r = c.post("/api/agent/ask", json={"question": "Et le client 0 ?", "model": "xgb", "threshold": 0.3,
+                                            "mode": "agent"}, headers=H)
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "vérifié" and r.json()["llm"]["provider"] == "scripted"
+        assert r.json()["mode"] == "agent"
+        app.dependency_overrides[get_llm_factory] = lambda: (lambda name=None: LLM.ScriptedClient(["Je ne sais pas."]))
+        g = c.post("/api/agent/ask", json={"question": "Et le client 0 ?", "model": "xgb", "threshold": 0.3}, headers=H)
+        assert g.status_code == 200 and g.json()["mode"] == "guidé"                       # mode par défaut
+        assert c.post("/api/agent/ask", json={"question": "Et le client 0 ?", "model": "xgb", "mode": "magique"},
+                      headers=H).status_code == 422
         assert c.post("/api/agent/ask", json={"question": "Et le client 0 ?", "model": "rf"}, headers=H).status_code == 404
 
         def boom(name=None):
@@ -292,3 +299,46 @@ def test_agent_routes():
         assert st["ok"] and st["default"] == "qwen3:8b" and st["models"][0]["size_gb"] == 5.2
     finally:
         app.dependency_overrides.clear()
+
+
+# ----------------------------------------------------------------------------------------------- mode guidé
+@pytest.mark.parametrize("question, expected", [
+    ("Pourquoi le client n°12 est-il refusé ?", ["decision_client", "motifs_client", "conseil_client"]),
+    ("Que peut faire le client 12 pour être accepté ?", ["decision_client", "motifs_client", "conseil_client"]),
+    ("Le client n°12 est-il refusé à cause de son âge ?",
+     ["decision_client", "motifs_client", "conseil_client", "audit_recours"]),
+    ("L'accès au conseil est-il le même pour les femmes et les hommes ?", ["audit_recours"]),
+    ("Qu'est-ce que le seuil de décision ?", ["infos_modele", "definir"]),
+    ("Combien de pertes la détection de fraude évite-t-elle ?", ["fraude_resume"]),
+    ("Bonjour !", ["infos_modele"]),
+])
+def test_routing_picks_the_tools_from_the_question(ctx, question, expected):
+    calls = AG.route(question, ctx)
+    assert [n for n, _ in calls] == expected
+    assert all(a == {"numero": 12} for n, a in calls if n.endswith("_client"))
+
+
+def test_guided_mode_only_asks_the_llm_to_write(ctx):
+    i = _refused(ctx)
+
+    def write(messages):
+        facts = messages[-1]["content"]
+        assert "decision_client" in facts and "Résultats des outils" in facts
+        d = json.loads(facts.split("- decision_client : ")[1].split("\n")[0])
+        return f"Le client n°{i} est en {d['decision']} : risque annoncé {d['risque_annonce_pct']} %, seuil {d['seuil_pct']} %."
+    llm = LLM.ScriptedClient([write])
+    r = AG.ask_guided(llm, ctx, f"Pourquoi le client n°{i} est-il refusé ?")
+    assert r["status"] == "vérifié" and r["mode"] == "guidé"
+    assert llm.tools_received == [None]                              # aucun outil proposé au LLM
+    assert [t["tool"] for t in r["trace"]] == ["decision_client", "motifs_client", "conseil_client"]
+    assert all(t["by"] == "application" for t in r["trace"])
+
+
+def test_guided_mode_still_corrects_and_reports(ctx):
+    i = _refused(ctx)
+    ok = AG.ask_guided(LLM.ScriptedClient(["Risque de 42,0 %.", "Le client est refusé."]), ctx, f"Client n°{i} ?")
+    assert ok["status"] == "corrigé" and ok["corrections"] == 1
+    bad = AG.ask_guided(LLM.ScriptedClient(["Risque de 42,0 %.", "Risque de 43 %."]), ctx, f"Client n°{i} ?")
+    assert bad["status"] == "non vérifié" and bad["verification"]["unsupported"] == ["43 %"]
+    empty = AG.ask_guided(LLM.ScriptedClient([""]), ctx, f"Client n°{i} ?")
+    assert empty["status"] == "sans réponse"

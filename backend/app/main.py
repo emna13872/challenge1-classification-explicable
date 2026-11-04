@@ -7,6 +7,8 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from . import calibration as CAL
@@ -460,6 +462,7 @@ class AgentReq(BaseModel):
     model: str = Field(..., description="modèle CreditLens à expliquer (ex. xgb)")
     threshold: float = Field(0.5, gt=0, lt=1)
     llm_model: str | None = Field(None, description="modèle Ollama (ex. qwen3:8b) ; défaut : le premier qwen3")
+    mode: Literal["guided", "agent"] = Field("guided", description="guided : l'application choisit les outils ; agent : le LLM les choisit")
 
 
 @app.post("/api/agent/ask", tags=["agent"])
@@ -468,7 +471,8 @@ def agent_ask(req: AgentReq, s: Session = Depends(sess_dep), factory=Depends(get
     need_model(s, req.model)
     ctx = AT.ToolContext(s, req.model, req.threshold, cache=s.cache.setdefault("agent_tools", {}))
     try:
-        return AG.ask(factory(req.llm_model), ctx, req.question)
+        llm = factory(req.llm_model)
+        return AG.ask_guided(llm, ctx, req.question) if req.mode == "guided" else AG.ask(llm, ctx, req.question)
     except LLM.LLMError as e:
         raise HTTPException(503, str(e))
 

@@ -133,9 +133,11 @@ class ScriptedClient:
         self.steps = list(steps)
         self.model = model
         self.received: list[list[dict]] = []
+        self.tools_received: list = []
 
     def chat(self, messages, tools=None):
         self.received.append([dict(m) for m in messages])
+        self.tools_received.append(tools)
         if not self.steps:
             return {"content": "", "tool_calls": []}
         step = self.steps.pop(0)
