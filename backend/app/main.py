@@ -17,6 +17,7 @@ from . import final as FIN
 from . import metrics as MT
 from . import models as MD
 from . import prep as P
+from . import reasons as RS
 from . import validation as V
 from .state import Session, clean, get_session
 
@@ -347,6 +348,23 @@ def explain_local(req: LocalReq, s: Session = Depends(sess_dep)):
 def explain_sensitive(name: str, threshold: float = 0.5, s: Session = Depends(sess_dep)):
     need_model(s, name)
     return X.sensitive_audit(s, name, threshold)
+
+
+class ReasonsReq(BaseModel):
+    model: str
+    threshold: float = Field(0.5, gt=0, lt=1)
+    test_index: int | None = None
+    record: dict | None = None
+    top: int = Field(3, ge=1, le=10)
+
+
+@app.post("/api/decision/reasons", tags=["décision"])
+def decision_reasons(req: ReasonsReq, s: Session = Depends(sess_dep)):
+    """Décision (accord/refus) d'un client et ses motifs principaux, sans variables sensibles."""
+    need_model(s, req.model)
+    if req.test_index is None and req.record is None:
+        raise HTTPException(400, "Fournissez test_index ou record.")
+    return guard(lambda: RS.decision_reasons(s, req.model, req.threshold, req.test_index, req.record, req.top))
 
 
 # ------------------------------------------------------------------ interface web (build React)

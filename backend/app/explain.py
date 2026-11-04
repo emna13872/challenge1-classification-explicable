@@ -221,8 +221,11 @@ def sentence(sess, p, thr, items, label_pos):
     return s + "."
 
 
-def local(sess, name, thr, test_index=None, record=None, lime_samples=1500, top=10):
-    est = sess.models[name]["est"]
+def client_matrices(sess, test_index=None, record=None):
+    """Un client, sous trois formes : (espace affichage, espace modèle, valeurs brutes, vraie classe ou None).
+
+    Soit un client du lot de test (test_index), soit un individu fictif (record, champs manquants = valeur typique).
+    """
     true_label = None
     if record is not None:
         d = _defaults(sess)
@@ -239,6 +242,12 @@ def local(sess, name, thr, test_index=None, record=None, lime_samples=1500, top=
         M, Z = sess.M_test[[i]], sess.Z_test[[i]]
         raw = sess.X_test_raw.iloc[i].to_dict()
         true_label = int(sess.y_test.iloc[i])
+    return M, Z, raw, true_label
+
+
+def local(sess, name, thr, test_index=None, record=None, lime_samples=1500, top=10):
+    est = sess.models[name]["est"]
+    M, Z, raw, true_label = client_matrices(sess, test_index, record)
     m_row = M[0]
     p = float(est.predict_proba(Z)[0, 1])
 
