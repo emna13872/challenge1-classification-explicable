@@ -38,11 +38,12 @@ def _fmt_value(sess: Session, orig: str, v: float) -> str:
     """Rend un code lisible quand on le connaît (Taïwan : PAY_k = retard de remboursement), sinon le nombre brut."""
     if sess.name == "taiwan_credit" and orig.startswith("PAY_") and not orig.startswith("PAY_AMT"):
         k = int(round(v))
+        # -1 est documenté par l'UCI ; 0 et -2 ne le sont pas. Lecture usuelle, cohérente avec les données (vérifié :
+        # code 0 → remboursement inférieur à la facture dans 95 % des cas ; code -2 → petite facture payée en entier).
         if k >= 1:
             return f"retard de {k} mois"
-        if k == -1:
-            return "payé à temps"
-        return f"code {k} (non documenté)"
+        return {-1: "payé en totalité, sans retard", 0: "payé sans retard, solde reporté (code 0, non documenté)",
+                -2: "rien à payer (code -2, non documenté)"}.get(k, f"code {k} (non documenté)")
     return X._fmt(v)
 
 

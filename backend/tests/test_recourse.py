@@ -97,10 +97,11 @@ def test_text_contains_the_real_numbers_and_the_caveat():
 
 
 def test_taiwan_configuration_is_safe():
-    cfg = RC.ACTIONABLE["taiwan_credit"]
-    assert set(cfg) == {f"PAY_AMT{k}" for k in range(1, 7)}
-    assert not any(X.is_sensitive(v) for v in cfg)
-    assert not any(v.startswith(("BILL", "LIMIT", "AGE", "SEX", "MARRIAGE", "EDUCATION")) for v in cfg)
+    """Taïwan : rien ne change « maintenant » (tout est fixe ou passé) ; seul le comportement à venir est conseillé."""
+    assert "taiwan_credit" not in RC.ACTIONABLE
+    w = RC.TIME_WINDOWS["taiwan_credit"]
+    assert w["months"] == 6 and {w["code_full"], w["code_partial"], w["code_none"]} == {-1, 0, -2}
+    assert not any(X.is_sensitive(w[k].format(k=1)) for k in ("status", "bill", "paid"))
 
 
 def test_recourse_endpoint_through_csv_upload():

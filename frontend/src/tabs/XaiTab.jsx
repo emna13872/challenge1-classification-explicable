@@ -20,7 +20,7 @@ export default function XaiTab() {
             <select value={cur} onChange={(e) => setModel(e.target.value)}>{names.map((n) => <option key={n} value={n}>{label(n)}</option>)}</select>
           </label>
           <div className="seg">
-            {[['global', 'Explications globales'], ['local', 'Explication d\'un individu'], ['fair', 'Variables sensibles et équité']].map(([k, t]) => (
+            {[['global', 'Explications globales'], ['local', 'Explication d\'un individu'], ['fair', 'Variables sensibles et équité'], ['audit', 'Audit du recours']].map(([k, t]) => (
               <button key={k} className={view === k ? 'on' : ''} onClick={() => setView(k)}>{t}</button>))}
           </div>
         </div>
@@ -28,6 +28,7 @@ export default function XaiTab() {
       {view === 'global' && <Global model={cur} label={label} names={names} />}
       {view === 'local' && <Local model={cur} />}
       {view === 'fair' && <Fairness model={cur} />}
+      {view === 'audit' && <RecourseAudit model={cur} />}
     </div>
   )
 }
@@ -249,14 +250,28 @@ function DecisionResult({ d }) {
             {c.options.map((o, i) => <li key={i}>{o.text}</li>)}
           </ol>
         )}
-        {c.status === 'none_found' && (
+        {c.status === 'none_found' && c.mode === 'future' && (
+          <Notice kind="warn">
+            Aucun conseil réaliste trouvé, même pour une nouvelle demande dans {c.horizons.join(', ')} mois en payant sans aucun retard
+            (risque le plus bas atteignable : {pct(c.lowest_probability_found, 1)}, seuil {pct(c.threshold, 1)}).
+            {c.assumed_bill <= 0 ? " Ce client n'a pas de facture en cours : le modèle n'a pas de remboursement à observer, et on ne conseille jamais de dépenser pour paraître fiable." : " Ce qui pèse ici ne se change pas (limite fixée par la banque, historique qui reste dans la fenêtre…)."}
+          </Notice>
+        )}
+        {c.status === 'none_found' && c.mode !== 'future' && (
           <Notice kind="warn">
             Aucun conseil réaliste trouvé. En changeant au mieux tout ce qui est modifiable
             ({Object.keys(c.actionable).join(', ')}), le risque annoncé ne descend pas sous {pct(c.lowest_probability_found, 1)},
             alors que le seuil est de {pct(c.threshold, 1)}. Ce qui pèse le plus ici ne se change pas (historique passé, limite fixée par la banque…).
           </Notice>
         )}
-        {Object.keys(c.actionable).length > 0 && (
+        {c.mode === 'future' && c.assumptions?.length > 0 && (
+          <div className="muted small">
+            Le passé (retards, factures, montants déjà remboursés) ne se réécrit pas : le conseil porte sur les mois à venir,
+            pour une nouvelle demande. Hypothèses :
+            <ul>{c.assumptions.map((h, i) => <li key={i}>{h}</li>)}</ul>
+          </div>
+        )}
+        {c.mode !== 'future' && Object.keys(c.actionable).length > 0 && (
           <p className="muted small">Variables que le client peut changer : {Object.keys(c.actionable).join(', ')}. Les autres sont considérées comme fixes.</p>
         )}
         <p className="muted small">{c.caveat}</p>
@@ -368,6 +383,125 @@ function Fairness({ model }) {
           </div>
         </Card>
       ))}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------------------- audit du recours (B4)
+const ci = (c) => (c ? `entre ${pct(c[0], 0)} et ${pct(c[1], 0)}` : '')
+
+function RecourseAudit({ model }) {
+  const { threshold } = useApp()
+  const [size, setSize] = useState(200)
+  const [a, setA] = useState(null)
+  const [st, run] = useAction()
+  useEffect(() => setA(null), [model, threshold])
+  const thr = Math.min(0.99, Math.max(0.01, threshold))
+  const go = () => run(async () => setA(await post('/api/decision/audit', { model, threshold: thr, max_clients: size || null })))
+
+  return (
+    <>
+      <Card title="Audit du recours : tous les clients refusés reçoivent-ils un conseil ?">
+        <p className="muted small">
+          Un conseil trouvé pour un client ne dit rien des autres. Ici, on cherche un conseil pour chaque client refusé
+          du lot de test (seuil {pct(thr, 1)}), puis on compte : combien en reçoivent un, quel effort il demande,
+          et si l'accès au conseil est le même d'un groupe à l'autre (sexe, âge…).
+        </p>
+        <div className="row wrap">
+          <label>Clients audités
+            <select value={size} onChange={(e) => setSize(Number(e.target.value))}>
+              <option value={100}>100 au hasard (rapide)</option>
+              <option value={200}>200 au hasard</option>
+              <option value={500}>500 au hasard</option>
+              <option value={0}>tous (environ 40 s sur Taïwan)</option>
+            </select></label>
+          <button className="primary" onClick={go} disabled={st.loading}>Lancer l'audit</button>
+        </div>
+        <Status state={st} busy="Recherche d'un conseil pour chaque client refusé…" />
+      </Card>
+      {a && <AuditResult a={a} />}
+    </>
+  )
+}
+
+function AuditResult({ a }) {
+  if (a.status === 'no_refused') return <Notice kind="info">Aucun client refusé à ce seuil : rien à auditer.</Notice>
+  if (a.status === 'no_actionable') return <Notice kind="info">Aucune variable modifiable n'est déclarée pour ce jeu de données : pas de conseil, donc pas d'audit.</Notice>
+  const e = a.effort
+  const vars = Object.entries(e.variables_used || {})
+  return (
+    <>
+      <Card title="Combien de clients refusés reçoivent un conseil ?">
+        <div className="stats">
+          <Stat label="clients refusés (lot de test)" value={`${a.n_refused} / ${a.n_test}`} hint={pct(a.share_refused, 0)} />
+          <Stat label={a.sampled ? `audités (tirés au hasard)` : 'audités (tous)'} value={a.n_audited} hint={`${a.seconds} s`} />
+          <Stat label="reçoivent un conseil réaliste" value={pct(a.share_found, 0)} hint={a.sampled ? ci(a.share_found_ci95) : 'mesure exacte'} />
+          <Stat label="aucun conseil possible" value={pct(a.share_none, 0)} />
+        </div>
+        {a.sampled && (
+          <p className="muted small">
+            Échantillon : le vrai pourcentage sur tous les refusés est très probablement {ci(a.share_found_ci95)} (intervalle de confiance à 95 %).
+          </p>
+        )}
+      </Card>
+
+      <Card title="Quel effort demandent les conseils ?">
+        {e.horizon_months && (
+          <div className="stats">
+            {Object.entries(e.horizon_months).map(([h, k]) => (
+              <Stat key={h} label={`conseil possible dès ${h} mois`} value={pct(k / a.n_found, 0)} hint={`${k} clients`} />))}
+            <Stat label="payer la facture en entier" value={pct(e.share_pays_full_bill, 0)} />
+          </div>
+        )}
+        <div className="stats">
+          {!e.horizon_months && <Stat label="une seule chose à changer" value={pct(e.share_one_change, 0)} />}
+          <Stat label="saut médian (en centiles)" value={e.median_percentile_jump == null ? '–' : `${Math.round(e.median_percentile_jump * 100)} places`} hint={`90 % des sauts ≤ ${Math.round((e.p90_percentile_jump || 0) * 100)} places`} />
+          <Stat label="montant multiplié par (médiane)" value={e.median_ratio == null ? '–' : `× ${e.median_ratio.toFixed(1)}`} />
+          <Stat label="partent de zéro" value={pct(e.share_from_zero, 0)} />
+        </div>
+        {vars.length > 1 && (
+          <Chart height={240} data={[{ type: 'bar', x: vars.map((v) => v[0]), y: vars.map((v) => v[1]), marker: { color: COLORS[0] } }]}
+            layout={{ yaxis: { title: 'nombre de conseils' } }} />
+        )}
+        <p className="muted small">
+          Un saut de 10 places de centile veut dire : passer, par exemple, du 40e au 50e rang sur 100 clients classés par montant.
+          « Partent de zéro » : le client ne remboursait rien jusqu'ici, le conseil lui demande de commencer.
+        </p>
+      </Card>
+
+      {a.n_none > 0 && (
+        <Card title="Pourquoi certains n'ont aucun conseil ?">
+          <div className="stats">
+            <Stat label="risque médian : sans conseil" value={pct(a.none_found.median_probability, 0)} />
+            <Stat label="risque médian : avec conseil" value={pct(a.none_found.median_probability_when_found, 0)} />
+            <Stat label="risque le plus bas atteignable (médiane, sans conseil)" value={pct(a.none_found.median_lowest_probability, 0)} hint={`seuil ${pct(a.threshold, 1)}`} />
+            {a.none_found.share_no_bill != null && <Stat label="sans facture en cours" value={pct(a.none_found.share_no_bill, 0)} hint="carte inutilisée le dernier mois" />}
+          </div>
+          <p className="muted small">
+            {a.none_found.share_no_bill != null
+              ? "En mode « avenir », le conseil ne demande jamais de rembourser plus que la facture. Les clients sans conseil sont surtout ceux dont la carte est peu ou pas utilisée : il n'y a rien à rembourser, et on ne conseille jamais de dépenser pour paraître fiable."
+              : "Même en changeant au mieux ce qui est modifiable, ces clients restent au-dessus du seuil : ce qui pèse chez eux ne se change pas."}
+          </p>
+        </Card>
+      )}
+
+      <Card title="L'accès au conseil est-il le même pour tous ?">
+        {a.fairness.length === 0 && <Notice kind="info">Aucune variable sensible avec des groupes assez grands (au moins 30 clients) pour comparer.</Notice>}
+        {a.fairness.map((f) => (
+          <div key={f.variable}>
+            <h4>{f.variable} · écart max {pct(f.gap, 1)}</h4>
+            {f.alert && <Notice kind="warn">Écart d'au moins 10 points entre groupes : à examiner (variable fixe corrélée au groupe ?).</Notice>}
+            <Table maxHeight={200} columns={[
+              { key: 'group', label: 'groupe' }, { key: 'n', label: 'refusés audités', num: true },
+              { key: 'share_found', label: 'reçoivent un conseil', num: true, render: (g) => pct(g.share_found, 0) },
+              { key: 'ci95', label: 'intervalle à 95 %', render: (g) => ci(g.ci95) }]} rows={f.groups} />
+          </div>
+        ))}
+        <p className="muted small">
+          Les variables sensibles ne sont jamais des motifs ni des conseils, mais d'autres variables peuvent leur être liées :
+          seule cette mesure par groupe le révèle. {a.caveat}
+        </p>
+      </Card>
     </>
   )
 }

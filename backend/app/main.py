@@ -19,6 +19,7 @@ from . import models as MD
 from . import prep as P
 from . import reasons as RS
 from . import recourse as RC
+from . import recourse_audit as RA
 from . import validation as V
 from .state import Session, clean, get_session
 
@@ -386,6 +387,21 @@ def decision_recourse(req: RecourseReq, s: Session = Depends(sess_dep)):
         raise HTTPException(400, "Fournissez test_index ou record.")
     return guard(lambda: RC.recourse(s, req.model, req.threshold, req.test_index, req.record, req.actionable,
                                      req.max_changes, req.n_options))
+
+
+class AuditReq(BaseModel):
+    model: str
+    threshold: float = Field(0.5, gt=0, lt=1)
+    max_clients: int | None = Field(400, ge=10, le=20000, description="null = tous les clients refusés")
+    actionable: dict[str, str] | None = None
+    max_changes: int = Field(2, ge=1, le=2)
+
+
+@app.post("/api/decision/audit", tags=["décision"])
+def decision_audit(req: AuditReq, s: Session = Depends(sess_dep)):
+    """Audit du recours sur l'ensemble des clients refusés : part avec conseil, effort demandé, équité par groupe."""
+    need_model(s, req.model)
+    return guard(lambda: RA.audit(s, req.model, req.threshold, req.max_clients, 0, req.actionable, req.max_changes))
 
 
 # ------------------------------------------------------------------ interface web (build React)

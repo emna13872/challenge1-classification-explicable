@@ -107,3 +107,28 @@ def test_taiwan_end_to_end():
     sens = c.get("/api/explain/sensitive/xgb", headers=H)
     assert sens.status_code == 200, sens.text
     assert {"SEX", "AGE", "MARRIAGE"} <= {f["feature"] for f in sens.json()["features"]}
+
+
+@pytest.mark.skipif(not taiwan_present, reason="fichier Taïwan absent de data/")
+def test_taiwan_decision_layer():
+    """Phase B sur le jeu réel : motifs sans variable sensible, conseils sur le comportement à venir, audit cohérent."""
+    h = {"X-Session-Id": "pytest-real-b"}
+    s = c.post("/api/data/load", json={"dataset": "taiwan_credit"}, headers=h).json()
+    feats = [col["name"] for col in s["columns"] if col["name"] != "default" and not col["suggest_exclude"]]
+    assert c.post("/api/prep", json={"features": feats}, headers=h).status_code == 200
+    assert c.post("/api/models/train", json={"models": [{"name": "xgb"}]}, headers=h).status_code == 200
+    thr = 0.167                                                      # seuil du coût 5:1
+    samples = c.get("/api/explain/test-samples/xgb?limit=40", headers=h).json()
+    for smp in samples[:15]:
+        r = c.post("/api/decision/reasons", json={"model": "xgb", "threshold": thr, "test_index": smp["index"]},
+                   headers=h).json()
+        assert not {x["feature"] for x in r["reasons_against"] + r["reasons_for"]} & {"SEX", "AGE", "MARRIAGE"}
+        assert r["additivity_gap"] < 1e-3
+        rc = c.post("/api/decision/recourse", json={"model": "xgb", "threshold": thr, "test_index": smp["index"]},
+                    headers=h).json()
+        assert rc["mode"] == "future"                                # le passé ne se réécrit pas
+        assert all(o["monthly_payment"] <= rc["assumed_bill"] or rc["assumed_bill"] == 0 for o in rc["options"])
+    a = c.post("/api/decision/audit", json={"model": "xgb", "threshold": thr, "max_clients": 80}, headers=h).json()
+    assert a["status"] == "ok" and a["n_audited"] == 80 and a["n_unverified"] == 0
+    assert 0.5 < a["share_found"] < 0.95                             # mesure complète : 76,7 % (3 166 refusés)
+    assert "SEX" in {f["variable"] for f in a["fairness"]}          # groupes d'au moins 30 clients seulement

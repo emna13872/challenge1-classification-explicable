@@ -86,6 +86,11 @@ describe('parcours complet', () => {
     await user.click(screen.getByRole('button', { name: /Variables sensibles/ }))
     await screen.findByText('SeniorCitizen', {}, T)
 
+    // Audit du recours : sur Telco rien n'est déclaré modifiable, l'audit doit le dire au lieu d'inventer des chiffres.
+    await user.click(screen.getByRole('button', { name: /Audit du recours/ }))
+    await user.click(await screen.findByRole('button', { name: /Lancer l'audit/ }))
+    await waitFor(() => expect(document.body.textContent).toMatch(/Aucune variable modifiable n'est déclarée|Aucun client refusé/), T)
+
     await user.click(screen.getByRole('button', { name: '6 · API' }))
     await screen.findByText(/Exemple d'appel/, {}, T)
     expect(errors.filter((e) => !/act\(/.test(e))).toEqual([])

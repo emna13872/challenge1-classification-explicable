@@ -128,8 +128,9 @@ def test_taiwan_repayment_codes_are_readable():
     s = Session()
     s.name = "taiwan_credit"
     assert R._fmt_value(s, "PAY_1", 2) == "retard de 2 mois"
-    assert R._fmt_value(s, "PAY_3", -1) == "payé à temps"
-    assert "non documenté" in R._fmt_value(s, "PAY_2", 0)
+    assert R._fmt_value(s, "PAY_3", -1) == "payé en totalité, sans retard"
+    assert "sans retard" in R._fmt_value(s, "PAY_2", 0) and "non documenté" in R._fmt_value(s, "PAY_2", 0)
+    assert "non documenté" in R._fmt_value(s, "PAY_2", -2) and "non documenté" in R._fmt_value(s, "PAY_2", -3)
     assert R._fmt_value(s, "PAY_AMT1", 291) == "291"                    # un montant n'est pas un code
     s.name = "autre"
     assert R._fmt_value(s, "PAY_1", 2) == "2"                           # aucun code supposé sur un autre jeu
