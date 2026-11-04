@@ -71,6 +71,12 @@ describe('parcours complet', () => {
     await user.click(screen.getByRole('button', { name: /Explication d'un individu/ }))
     await user.click(await screen.findByRole('button', { name: /Expliquer cette prédiction/ }))
     await screen.findByText('Comparaison SHAP / LIME', {}, T)
+
+    // Décision, motifs et recours : sur Telco aucune variable modifiable n'est déclarée, l'application doit le dire.
+    await user.click(screen.getByRole('button', { name: /Motifs de la décision et conseil/ }))
+    await screen.findByText('Décision et motifs', {}, T)
+    await screen.findByText('Que changer pour être accepté ?', {}, T)
+    await waitFor(() => expect(document.body.textContent).toMatch(/Variables sensibles jamais citées|Aucune variable modifiable|déjà accepté/), T)
     expect(document.querySelector('.sentence').textContent).toMatch(/^Le risque/)
 
     await user.click(screen.getByRole('button', { name: /Individu fictif/ }))

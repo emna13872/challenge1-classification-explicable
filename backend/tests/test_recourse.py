@@ -92,7 +92,7 @@ def test_text_contains_the_real_numbers_and_the_caveat():
     s = _trained("xgb")
     r = RC.recourse(s, "xgb", THR, test_index=_refused_client(s), actionable=RULES)
     o = r["options"][0]
-    assert f"{r['probability']:.1%}" in o["text"] and f"{o['new_probability']:.1%}" in o["text"]
+    assert RC._pct(r["probability"], THR) in o["text"] and RC._pct(o["new_probability"], THR) in o["text"]
     assert "ne garantit" in r["caveat"]
 
 
@@ -141,3 +141,8 @@ def test_no_two_change_option_contains_a_change_that_is_enough_alone():
             for c in o["changes"]:
                 _, Z, _, _ = X.client_matrices(s, record={**raw, c["feature"]: c["to"]})
                 assert float(est.predict_proba(Z)[0, 1]) >= THR                # sinon le 2e changement est inutile
+
+
+def test_percentages_never_look_equal_to_the_threshold():
+    assert RC._pct(0.1697, 0.17) == "16.97%"                # 17.0 % sous 17.0 % serait incompréhensible
+    assert RC._pct(0.151, 0.17) == "15.1%"

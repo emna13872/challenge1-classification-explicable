@@ -84,3 +84,6 @@ tr.best td { background: #ecfdf5; font-weight: 600; }
 .tag.warn { background: #fef3c7; color: #92400e; }
 pre { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 8px; overflow: auto; font-size: 12.5px; }
 code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+
+ol.options { margin: 8px 0 8px 18px; padding: 0; }
+ol.options li { margin-bottom: 8px; line-height: 1.45; }

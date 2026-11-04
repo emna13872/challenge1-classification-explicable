@@ -131,16 +131,28 @@ function Local({ model }) {
   const [rec, setRec] = useState({})
   const [res, setRes] = useState(null)
   const [st, run] = useAction()
+  const [dec, setDec] = useState(null)
+  const [decSt, runDec] = useAction()
 
   useEffect(() => {
     get(`/api/explain/test-samples/${model}?limit=40`).then((s) => { setSamples(s); if (s[0]) setIdx(s[0].index) }).catch(() => {})
     get('/api/explain/form').then((f) => { setForm(f); setRec(Object.fromEntries(f.fields.map((x) => [x.name, x.default]))) }).catch(() => {})
     setRes(null)
+    setDec(null)
   }, [model])
 
   const explain = () => run(async () => {
     const body = { model, threshold, ...(mode === 'test' ? { test_index: Number(idx) } : { record: rec }) }
     setRes(await post('/api/explain/local', body))
+  })
+
+  // Décision, motifs de refus et recours : deux appels à l'API, l'un après l'autre (même client, même seuil).
+  const decide = () => runDec(async () => {
+    const who = mode === 'test' ? { test_index: Number(idx) } : { record: rec }
+    const thr = Math.min(0.99, Math.max(0.01, threshold))
+    const reasons = await post('/api/decision/reasons', { model, threshold: thr, ...who })
+    const recourse = await post('/api/decision/recourse', { model, threshold: thr, ...who })
+    setDec({ reasons, recourse })
   })
 
   return (
@@ -175,10 +187,80 @@ function Local({ model }) {
         <div className="row wrap">
           <Slider label="Seuil de décision" value={threshold} min={0} max={1} step={0.01} onChange={setThreshold} fmt={(v) => v.toFixed(2)} />
           <button className="primary" onClick={explain} disabled={st.loading}>Expliquer cette prédiction</button>
+          <button onClick={decide} disabled={decSt.loading}>Motifs de la décision et conseil</button>
         </div>
         <Status state={st} busy="Calcul de SHAP et LIME…" />
+        <Status state={decSt} busy="Calcul des motifs et recherche d'un conseil réaliste…" />
       </Card>
+      {dec && <DecisionResult d={dec} />}
       {res && <LocalResult res={res} />}
+    </>
+  )
+}
+
+const RECOURSE_NOTE = {
+  already_accepted: 'Ce client est déjà accepté au seuil choisi : aucun changement nécessaire.',
+  no_actionable: "Aucune variable modifiable n'est déclarée pour ce jeu de données : l'application ne propose pas de conseil plutôt que d'en inventer un.",
+}
+
+function DecisionResult({ d }) {
+  const r = d.reasons
+  const c = d.recourse
+  const refused = r.decision === 'refus'
+  return (
+    <>
+      <Card title="Décision et motifs">
+        <div className="stats">
+          <Stat label={`décision au seuil ${pct(r.threshold, 1)}`} value={refused ? 'REFUS' : 'ACCORD'} />
+          <Stat label="risque annoncé par le modèle" value={pct(r.probability, 1)} />
+        </div>
+        {r.reasons_against.length > 0 && (
+          <>
+            <h4>Motifs principaux qui poussent vers le refus</h4>
+            <Table maxHeight={220} columns={[
+              { key: 'text', label: 'motif' },
+              { key: 'share', label: 'part de la poussée', num: true, render: (x) => pct(x.share_of_push, 0) }]} rows={r.reasons_against} />
+          </>
+        )}
+        {r.reasons_for.length > 0 && (
+          <>
+            <h4>Ce qui joue en sa faveur</h4>
+            <Table maxHeight={180} columns={[
+              { key: 'text', label: 'élément' },
+              { key: 'share', label: 'part', num: true, render: (x) => pct(x.share_of_push, 0) }]} rows={r.reasons_for} />
+          </>
+        )}
+        {r.excluded_sensitive.length > 0 && (
+          <Notice kind="info">
+            Variables sensibles jamais citées comme motif : {r.excluded_sensitive.join(', ')}. Elles sont présentes dans le modèle
+            et font l'objet de l'audit d'équité (vue « Variables sensibles et équité »).
+          </Notice>
+        )}
+        <p className="muted small">
+          Ces motifs décrivent ce que le modèle a appris (des corrélations), pas des causes. Les contributions s'additionnent
+          jusqu'à la prédiction (écart de contrôle : {r.additivity_gap.toExponential(1)}).
+        </p>
+      </Card>
+
+      <Card title="Que changer pour être accepté ?">
+        {RECOURSE_NOTE[c.status] && <Notice kind="info">{RECOURSE_NOTE[c.status]}</Notice>}
+        {c.status === 'found' && (
+          <ol className="options">
+            {c.options.map((o, i) => <li key={i}>{o.text}</li>)}
+          </ol>
+        )}
+        {c.status === 'none_found' && (
+          <Notice kind="warn">
+            Aucun conseil réaliste trouvé. En changeant au mieux tout ce qui est modifiable
+            ({Object.keys(c.actionable).join(', ')}), le risque annoncé ne descend pas sous {pct(c.lowest_probability_found, 1)},
+            alors que le seuil est de {pct(c.threshold, 1)}. Ce qui pèse le plus ici ne se change pas (historique passé, limite fixée par la banque…).
+          </Notice>
+        )}
+        {Object.keys(c.actionable).length > 0 && (
+          <p className="muted small">Variables que le client peut changer : {Object.keys(c.actionable).join(', ')}. Les autres sont considérées comme fixes.</p>
+        )}
+        <p className="muted small">{c.caveat}</p>
+      </Card>
     </>
   )
 }

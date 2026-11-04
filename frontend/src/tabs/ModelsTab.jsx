@@ -7,7 +7,7 @@ import Chart, { COLORS } from '../Chart.jsx'
 const CAL_LABEL = { raw: 'brute (sans correction)', sigmoid: 'sigmoïde (Platt)', isotonic: 'isotonique' }
 
 export default function ModelsTab() {
-  const { prep, trained, setTrained, refreshEval, goTo } = useApp()
+  const { prep, trained, setTrained, refreshEval, goTo, setThreshold } = useApp()
   const [catalog, setCatalog] = useState(null)
   const [sel, setSel] = useState({})
   const [balance, setBalance] = useState(false)
@@ -223,6 +223,11 @@ export default function ModelsTab() {
               Coût moyen par dossier : {num(thr.best.cost, 3)} contre {num(thr.at_half.cost, 3)} avec le seuil de 50 %.
               Probabilités utilisées : {CAL_LABEL[thr.calibration_used]}.
             </Notice>
+            <div className="row">
+              <button onClick={() => setThreshold(Math.round(thr.best.threshold * 100) / 100)}>
+                Utiliser le seuil {num(thr.best.threshold, 2)} dans les explications et la décision
+              </button>
+            </div>
             <Table maxHeight={260} columns={[
               { key: 'k', label: 'stratégie' },
               { key: 'cost', label: 'coût moyen par dossier', num: true, render: (r) => num(r.cost, 3) },

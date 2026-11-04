@@ -61,6 +61,12 @@ def _nice(v: float, up: bool, digits: int) -> float:
     return float((np.ceil(v / mag) if up else np.floor(v / mag)) * mag)
 
 
+def _pct(p: float, thr: float) -> str:
+    """Pourcentage à 1 décimale ; 2 décimales si l'arrondi ferait croire que p égale le seuil."""
+    a, b = f"{p:.1%}", f"{thr:.1%}"
+    return f"{p:.2%}" if a == b else a
+
+
 def _predict(sess, est, M0, changes: dict[int, np.ndarray]):
     """Probabilités de défaut pour un lot de lignes : M0 dont certaines colonnes prennent les valeurs données."""
     n = len(next(iter(changes.values())))
@@ -159,7 +165,7 @@ def recourse(sess: Session, name: str, thr: float, test_index=None, record=None,
         text = " et ".join(f"« {c['label']} » passait de {_fmt_value(sess, c['feature'], c['from'])} "
                            f"à {_fmt_value(sess, c['feature'], c['to'])}" for c in changes)
         options.append({"changes": changes, "new_probability": p2, "score": float(score), "verified": True,
-                        "text": f"Si {text}, le risque annoncé passerait de {p0:.1%} à {p2:.1%} "
+                        "text": f"Si {text}, le risque annoncé passerait de {_pct(p0, thr)} à {_pct(p2, thr)} "
                                 f"(sous le seuil de {thr:.1%})."})
         if len(options) >= n_options:
             break
