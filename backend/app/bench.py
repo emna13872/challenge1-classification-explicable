@@ -91,6 +91,7 @@ def grade(case: dict, result: dict) -> dict:
         checks["dit ne pas savoir"] = bool(_DONT_KNOW.search(low))
         invented = [t for t in V.numbers(ans) if not any(abs(x - case["client"]) < 1e-9 for x in t["values"])]
         checks["aucun nombre inventé"] = not invented
+    checks["chaque nombre à sa place (seuil, risque)"] = not (result.get("verification") or {}).get("misplaced")
     checks["garde-fou : vérifié ou corrigé"] = result.get("status") in ("vérifié", "corrigé")
     return {"checks": checks, "correct": all(checks.values())}
 
@@ -105,6 +106,7 @@ def run(llm, ctx: T.ToolContext, clients: list[int], mode: str = "guided", log=p
             res = {"answer": "", "status": f"erreur : {ex}", "trace": []}
         g = grade(case, res)
         rows.append({**case, "answer": res.get("answer"), "status": res.get("status"),
+                     "misplaced": (res.get("verification") or {}).get("misplaced"),
                      "tools": [t["tool"] for t in res.get("trace", [])], "seconds": round(time.time() - t0, 1), **g})
         log(f"[{'OK ' if g['correct'] else 'NON'}] {case['family']:15s} {res.get('status')!s:12s} {rows[-1]['seconds']:6.1f}s  {case['question']}")
     by = {f: [r for r in rows if r["family"] == f] for f in FAMILIES}

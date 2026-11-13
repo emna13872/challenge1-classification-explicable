@@ -51,10 +51,19 @@ Règles :
 /no_think"""
 
 
-def correction(unsupported: list[str]) -> str:
-    return ("Ta réponse contient des nombres qui ne viennent d'aucun résultat d'outil : " + ", ".join(unsupported)
-            + ". Réécris ta réponse en n'utilisant que des nombres présents dans les résultats des outils "
-              "(ou supprime ces nombres).")
+def correction(unsupported: list[str], wrong: list[dict] | None = None) -> str:
+    parts = []
+    if unsupported:
+        parts.append("Ta réponse contient des nombres qui ne viennent d'aucun résultat d'outil : " + ", ".join(unsupported) + ".")
+    for w in wrong or []:
+        parts.append(f"Tu écris « {w['word']} » suivi de {w['text']}, mais selon les outils le {w['word']} vaut "
+                     + " ou ".join(f"{v} %" for v in w["expected"]) + ".")
+    return " ".join(parts) + (" Réécris ta réponse en n'utilisant que des nombres présents dans les résultats des "
+                              "outils, chacun à sa place (ou supprime ces nombres).")
+
+
+def _bad(check: dict) -> bool:
+    return bool(check["unsupported"] or check.get("misplaced"))
 
 
 def ask(llm, ctx: T.ToolContext, question: str, max_steps: int = 8) -> dict:
@@ -85,16 +94,16 @@ def ask(llm, ctx: T.ToolContext, question: str, max_steps: int = 8) -> dict:
             messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": NUDGE}]
             continue
         check = V.verify(answer, allowed)
-        if check["unsupported"] and corrections == 0:        # des nombres sans source : une correction
+        if _bad(check) and corrections == 0:                 # nombre sans source ou mal placé : une correction
             corrections += 1
             messages += [{"role": "assistant", "content": answer},
-                         {"role": "user", "content": correction(check["unsupported"])}]
+                         {"role": "user", "content": correction(check["unsupported"], check["misplaced"])}]
             continue
         if not trace:
             status = "sans outil"
         elif not answer.strip():
             status = "sans réponse"
-        elif check["unsupported"]:
+        elif _bad(check):
             status = "non vérifié"
         else:
             status = "corrigé" if corrections else "vérifié"
@@ -163,15 +172,15 @@ def ask_guided(llm, ctx: T.ToolContext, question: str) -> dict:
         llm_seconds += resp.get("seconds") or 0.0
         answer = resp["content"]
         check = V.verify(answer, allowed)
-        if check["unsupported"] and corrections == 0 and answer.strip():
+        if _bad(check) and corrections == 0 and answer.strip():
             corrections += 1
             messages += [{"role": "assistant", "content": answer},
-                         {"role": "user", "content": correction(check["unsupported"])}]
+                         {"role": "user", "content": correction(check["unsupported"], check["misplaced"])}]
             continue
         break
     if not answer.strip():
         status = "sans réponse"
-    elif check["unsupported"]:
+    elif _bad(check):
         status = "non vérifié"
     else:
         status = "corrigé" if corrections else "vérifié"

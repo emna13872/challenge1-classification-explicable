@@ -80,7 +80,7 @@ def test_warnings_for_sensitive_words_and_promises():
 
 def test_collect_reads_numbers_inside_tool_texts():
     got = V.collect({"a": 0.5, "b": [{"texte": "risque de 15.4% au lieu de 34.8%"}], "ok": True}, "outil")
-    assert sorted(v for v, _ in got) == [0.5, 15.4, 34.8]          # le booléen n'est pas un nombre
+    assert sorted(v for v, *_ in got) == [0.5, 15.4, 34.8]          # le booléen n'est pas un nombre
 
 
 # ----------------------------------------------------------------------------------------------- outils
@@ -349,3 +349,28 @@ def test_guided_mode_still_corrects_and_reports(ctx):
     assert bad["status"] == "non vérifié" and bad["verification"]["unsupported"] == ["43 %"]
     empty = AG.ask_guided(LLM.ScriptedClient([""]), ctx, f"Client n°{i} ?")
     assert empty["status"] == "sans réponse"
+
+
+# ----------------------------------------------------------------------------------------------- voisinage
+def test_a_true_number_next_to_the_wrong_word_is_caught():
+    allowed = V.collect({"risque_annonce_pct": 34.8, "seuil_pct": 16.7}, "decision_client")
+    good = V.verify("Son risque de 34,8 % dépasse le seuil de 16,7 %.", allowed)
+    assert good["unsupported"] == [] and good["misplaced"] == []
+    bad = V.verify("Son risque de 34,8 % dépasse le seuil de 34,8 %.", allowed)
+    assert bad["unsupported"] == []                                 # le nombre existe…
+    assert bad["misplaced"] == [{"word": "seuil", "text": "34,8 %", "expected": [16.7]}]   # … mais pas comme seuil
+    swapped = V.verify("Le risque annoncé est de 16,7 %.", allowed)
+    assert swapped["misplaced"][0]["word"] == "risque"
+    assert V.verify("Écart au seuil : 18,1 points.", allowed)["misplaced"] == []   # pas un pourcentage : non contrôlé
+
+
+def test_misplaced_numbers_trigger_a_correction(ctx):
+    i = _refused(ctx)
+
+    def swap(messages):
+        d = _last_tool(messages)
+        return f"Risque de {d['risque_annonce_pct']} %, au-dessus du seuil de {d['risque_annonce_pct']} %."
+    r = AG.ask(LLM.ScriptedClient([[("decision_client", {"numero": i})], swap, _honest]), ctx, f"Client {i} ?")
+    assert r["status"] == "corrigé"
+    r2 = AG.ask(LLM.ScriptedClient([[("decision_client", {"numero": i})], swap, swap]), ctx, f"Client {i} ?")
+    assert r2["status"] == "non vérifié" and r2["verification"]["misplaced"]

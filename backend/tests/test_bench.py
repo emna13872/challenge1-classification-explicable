@@ -9,9 +9,13 @@ from app import llm as LLM
 from test_agent import ctx  # noqa: F401  (fixture : session synthétique au format de Taïwan)
 
 
+def _first_user(messages):
+    return next(m for m in messages if m["role"] == "user")["content"]   # la question + les résultats d'outils
+
+
 def _facts(messages):
     out = {}
-    for line in messages[-1]["content"].split("\n"):
+    for line in _first_user(messages).split("\n"):
         if line.startswith("- ") and " : " in line:
             name, js = line[2:].split(" : ", 1)
             out[name] = json.loads(js)
@@ -20,7 +24,7 @@ def _facts(messages):
 
 def oracle(messages):
     """Ce qu'un assistant parfait répondrait, à partir des seuls résultats d'outils."""
-    q, f = messages[-1]["content"].split("\n")[0], _facts(messages)
+    q, f = _first_user(messages).split("\n")[0], _facts(messages)
     if "seuil" in q:
         return f"Le seuil de décision est de {f['infos_modele']['seuil_pct']} %."
     d = f.get("decision_client", {})
@@ -60,7 +64,7 @@ def test_a_perfect_assistant_scores_100(ctx):  # noqa: F811
 
 def test_traps_catch_a_naive_assistant(ctx):  # noqa: F811
     def naive(messages):
-        q = messages[-1]["content"].split("\n")[0]
+        q = _first_user(messages).split("\n")[0]
         if "sexe" in q:
             return "Oui, c'est à cause de son sexe."
         if "revenu" in q:
@@ -71,18 +75,20 @@ def test_traps_catch_a_naive_assistant(ctx):  # noqa: F811
     assert rep["by_family"]["decision"] == 1.0
 
 
-def test_a_wrong_number_fails_even_if_the_guard_accepts_it(ctx):  # noqa: F811
-    """Le seuil cité à la place du risque : un nombre « existant », au mauvais endroit. Le banc le voit."""
+def test_a_wrong_number_is_caught_by_the_bench_and_now_by_the_guard(ctx):  # noqa: F811
+    """Le seuil cité à la place du risque : un nombre « existant », au mauvais endroit.
+
+    Avant la règle de voisinage, le garde-fou le validait et seul le banc le voyait ; maintenant les deux le voient."""
     def mixup(messages):
-        q, f = messages[-1]["content"].split("\n")[0], _facts(messages)
+        q, f = _first_user(messages).split("\n")[0], _facts(messages)
         if q.startswith("Le client") and "sexe" not in q:
             d = f["decision_client"]
             return f"Le client est {'refusé' if d['decision'] == 'refus' else 'accepté'} : risque annoncé {d['seuil_pct']} %."
         return oracle(messages)
     rep = B.run(Oracle(mixup), ctx, B.pick_clients(ctx, 2), log=lambda *_: None)
     rows = [r for r in rep["rows"] if r["family"] == "decision"]
-    assert all(r["status"] == "vérifié" for r in rows)              # le garde-fou ne voit rien…
-    assert all(not r["correct"] for r in rows)                      # … le banc d'essai, si
+    assert all(r["status"] == "non vérifié" and r["misplaced"] for r in rows)   # le garde-fou le signale
+    assert all(not r["correct"] for r in rows)                                    # le banc aussi
 
 
 def test_has_number_and_grading_rules():
@@ -99,3 +105,17 @@ def test_clients_are_reproducible_and_mixed(ctx):  # noqa: F811
     assert a == b and len(a) == 6
     decisions = {T.decision_client(ctx, i)["decision"] for i in a}
     assert decisions == {"refus", "accord"}
+
+
+def test_the_bench_now_catches_the_meaning_error(ctx):  # noqa: F811
+    """La question de vérification d'Emna : « son risque de 34,8 % dépasse le seuil de 34,8 % »."""
+    def same(messages):
+        q, f = _first_user(messages).split("\n")[0], _facts(messages)
+        if q.startswith("Le client") and "sexe" not in q:
+            d = f["decision_client"]
+            word = "refusé" if d["decision"] == "refus" else "accepté"
+            return f"Le client est {word} : son risque de {d['risque_annonce_pct']} % dépasse le seuil de {d['risque_annonce_pct']} %."
+        return oracle(messages)
+    rep = B.run(Oracle(same), ctx, B.pick_clients(ctx, 2), log=lambda *_: None)
+    rows = [r for r in rep["rows"] if r["family"] == "decision"]
+    assert all(not r["correct"] and r["misplaced"] for r in rows)

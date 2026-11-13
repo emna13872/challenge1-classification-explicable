@@ -29,23 +29,49 @@ def numbers(text: str) -> list[dict]:
     return out
 
 
-def collect(obj, source: str, into: list | None = None) -> list:
-    """Tous les nombres d'un résultat d'outil (valeurs numériques ET nombres écrits dans les textes)."""
+def collect(obj, source: str, into: list | None = None, key: str = "") -> list:
+    """Tous les nombres d'un résultat d'outil (valeurs numériques ET nombres écrits dans les textes).
+
+    Chaque nombre garde le nom du champ d'où il vient (ex. « seuil_pct ») : c'est ce qui permet de vérifier
+    qu'un nombre est attaché au bon mot (voir `misplaced`).
+    """
     into = [] if into is None else into
     if isinstance(obj, bool) or obj is None:
         return into
     if isinstance(obj, (int, float)):
-        into.append((abs(float(obj)), source))
+        into.append((abs(float(obj)), source, key))
     elif isinstance(obj, str):
         for t in numbers(obj):
-            into.extend((v, source) for v in t["values"])
+            into.extend((v, source, key) for v in t["values"])
     elif isinstance(obj, dict):
-        for v in obj.values():
-            collect(v, source, into)
+        for k, v in obj.items():
+            collect(v, source, into, str(k))
     elif isinstance(obj, (list, tuple)):
         for v in obj:
-            collect(v, source, into)
+            collect(v, source, into, key)
     return into
+
+
+# Règle de voisinage : un pourcentage écrit juste après « seuil » doit être un seuil renvoyé par un outil, un
+# pourcentage juste après « risque » doit être un risque renvoyé par un outil (champ dont le nom contient le mot).
+ANCHORS = ("seuil", "risque")
+_ANCHOR = re.compile(r"\b(seuils?|risques?)\b([^.;!?\n]{0,40}?)(?<![\w.,])(\d+(?:[.,]\d+)?)\s?%")
+
+
+def misplaced(answer: str, allowed: list) -> list[dict]:
+    """Nombres vrais mais attachés au mauvais mot : « le seuil de 34,8 % » alors que 34,8 est le risque."""
+    out = []
+    for m in _ANCHOR.finditer(_norm(answer or "")):
+        word = "seuil" if m.group(1).startswith("seuil") else "risque"
+        ok_values = [a[0] for a in allowed if len(a) > 2 and word in a[2]]
+        if not ok_values:                                          # aucun outil n'a donné ce genre de valeur
+            continue
+        dec = m.group(3).replace(",", ".")
+        x, d = float(dec), len(dec.split(".")[1]) if "." in dec else 0
+        if not any(abs(x - v) <= 0.5 * 10 ** (-d) + 1e-9 for v in ok_values):
+            out.append({"word": word, "text": m.group(3) + " %",
+                        "expected": sorted({round(v, 1) for v in ok_values})})
+    return out
 
 
 def _norm(s: str) -> str:
@@ -63,7 +89,7 @@ def verify(answer: str, allowed: list[tuple[float, str]]) -> dict:
     found = []
     for t in numbers(answer):
         tol = 0.5 * 10 ** (-t["decimals"]) + 1e-9
-        src = next((s for x in t["values"] for (v, s) in allowed if abs(x - v) <= tol), None)
+        src = next((a[1] for x in t["values"] for a in allowed if abs(x - a[0]) <= tol), None)
         found.append({"text": t["text"], "value": t["values"][0], "supported": src is not None, "source": src})
     low = _norm(answer)
     warnings = []
@@ -72,5 +98,6 @@ def verify(answer: str, allowed: list[tuple[float, str]]) -> dict:
                         "jamais être présentée comme un motif.")
     if _PROMISE.search(_NEGATED.sub(" ", low)):
         warnings.append("La réponse semble promettre une acceptation : un conseil ne garantit rien.")
-    return {"numbers": found, "unsupported": [f["text"] for f in found if not f["supported"]],
+    wrong = misplaced(answer, allowed)
+    return {"numbers": found, "unsupported": [f["text"] for f in found if not f["supported"]], "misplaced": wrong,
             "n_numbers": len(found), "n_supported": sum(f["supported"] for f in found), "warnings": warnings}
