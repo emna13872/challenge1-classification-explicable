@@ -1,5 +1,7 @@
-# Intégration continue de CreditLens : à chaque envoi sur GitHub, on teste tout ; si tout passe sur la branche
-# creditlens, on déploie sur Hugging Face Spaces (secret HF_TOKEN + variable HF_SPACE à créer dans GitHub).
+# Intégration continue de CreditLens : à chaque envoi sur GitHub, on teste tout (serveur, interface, image Docker).
+# Le déploiement est fait par Render, qui reconstruit l'image Docker de la branche creditlens après chaque envoi
+# (réglage conseillé : « Auto-Deploy : After CI Checks Pass », pour ne déployer que si ces tests passent).
+# (Hugging Face Spaces Docker est devenu payant en juillet 2026 : abandonné.)
 name: CI
 
 on:
@@ -69,26 +71,3 @@ jobs:
           echo "Image OK : interface servie, jeu de Taïwan disponible"
       - if: failure()
         run: docker logs app || true
-
-  deploy:
-    name: Déploiement sur Hugging Face Spaces
-    needs: [backend, frontend, docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/creditlens' && vars.HF_SPACE != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Envoyer une copie propre vers le Space
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE: ${{ vars.HF_SPACE }}
-        run: |
-          # Hugging Face refuse les fichiers binaires hors LFS : on envoie un instantané sans historique ni PDF.
-          git config user.name "CreditLens CI"
-          git config user.email "ci@users.noreply.github.com"
-          git checkout --orphan space
-          git rm -rq --cached docs/*.pdf 2>/dev/null || true
-          rm -f docs/*.pdf
-          sed -i 's/^title: .*/title: CreditLens/' README.md
-          git add -A
-          git commit -qm "Déploiement de ${GITHUB_SHA::7}"
-          git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" space:main
