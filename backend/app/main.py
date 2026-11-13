@@ -23,6 +23,7 @@ from . import reasons as RS
 from . import recourse as RC
 from . import recourse_audit as RA
 from . import fraud as FR
+from . import drift as DR
 from . import agent as AG
 from . import agent_tools as AT
 from . import llm as LLM
@@ -435,6 +436,32 @@ def fraud_final(req: FraudFinalReq, s: Session = Depends(sess_dep)):
     """Décide sur l'apprentissage, puis ouvre le lot de test une seule fois (ouverture comptée)."""
     need_prep(s)
     return guard(lambda: FR.fraud_final(s, req.review_cost, req.variants, req.n_splits, req.amount_column, req.force))
+
+
+# ------------------------------------------------------------------ dérive (phase F)
+class DriftReq(BaseModel):
+    model: str | None = None
+    threshold: float = Field(0.5, gt=0, lt=1)
+    scenario: Literal["test", "shifted"] = "test"
+    feature: str | None = None
+    factor: float = 1.0
+    offset: float = 0.0
+
+
+@app.post("/api/drift", tags=["dérive"])
+def drift(req: DriftReq, s: Session = Depends(sess_dep)):
+    """PSI de chaque variable et du score : lot de test, ou lot de test volontairement décalé."""
+    need_prep(s)
+
+    def run():
+        if req.scenario == "shifted":
+            if not req.feature:
+                raise ValueError("Choisissez la variable à décaler.")
+            cur = DR.shifted(s, req.feature, req.factor, req.offset)
+            lab = f"lot de test décalé ({req.feature} × {req.factor:g} + {req.offset:g})"
+            return DR.drift_report(s, req.model, cur, req.threshold, lab)
+        return DR.drift_report(s, req.model, None, req.threshold, "lot de test")
+    return guard(run)
 
 
 # ------------------------------------------------------------------ agent (phase D)

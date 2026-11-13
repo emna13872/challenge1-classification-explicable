@@ -59,6 +59,10 @@ describe('parcours complet', () => {
     await user.click(screen.getByRole('button', { name: /Revoir le résultat final/ }))
     await waitFor(() => expect(document.body.textContent).toMatch(/le test n'a pas été relu/), T)
 
+    // Suivi de dérive (phase F) : le lot de test ressemble à l'apprentissage.
+    await user.click(screen.getByRole('button', { name: /Mesurer la dérive/ }))
+    await waitFor(() => expect(document.body.textContent).toMatch(/Aucune dérive|Dérive détectée/), T)
+
     await user.click(screen.getByRole('button', { name: /Évaluer et comparer/ }))
     await screen.findByText('Tableau comparatif des modèles', {}, T)
     await screen.findByText(/Matrice de confusion/, {}, T)

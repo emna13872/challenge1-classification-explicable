@@ -4,6 +4,7 @@ import { get, post } from '../api.js'
 import { Card, Table, Notice, useAction, Status, Stat, num } from '../ui.jsx'
 import Chart, { COLORS } from '../Chart.jsx'
 import FraudCard from './FraudCard.jsx'
+import DriftCard from './DriftCard.jsx'
 
 const CAL_LABEL = { raw: 'brute (sans correction)', sigmoid: 'sigmoïde (Platt)', isotonic: 'isotonique' }
 
@@ -312,6 +313,8 @@ export default function ModelsTab() {
       </Card>
 
       {prep && summary?.columns?.some((c) => c.name === 'Amount') && <FraudCard />}
+
+      {prep && <DriftCard />}
 
       {trained.length > 0 && (
         <Card title="Modèles entraînés">
