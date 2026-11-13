@@ -374,3 +374,10 @@ def test_misplaced_numbers_trigger_a_correction(ctx):
     assert r["status"] == "corrigé"
     r2 = AG.ask(LLM.ScriptedClient([[("decision_client", {"numero": i})], swap, swap]), ctx, f"Client {i} ?")
     assert r2["status"] == "non vérifié" and r2["verification"]["misplaced"]
+
+
+def test_reasoning_without_opening_tag_is_removed():
+    """Vu sur le PC d'Emna (13 novembre, qwen3:4b) : la réflexion en anglais, puis « </think> », sans « <think> »."""
+    raw = ("Okay, let me check the results. The numbers present are 16.7, 1, 5, 22500…\n"
+           "So the answer is: Le seuil est de 16,7 %.\n</think>\n\nLe seuil de décision est de 16,7 %.")
+    assert LLM.clean(raw) == "Le seuil de décision est de 16,7 %."

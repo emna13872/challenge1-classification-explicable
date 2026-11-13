@@ -165,7 +165,7 @@ def ask_guided(llm, ctx: T.ToolContext, question: str) -> dict:
             V.collect(result, name, allowed)
     facts = "\n".join(f"- {t['tool']} : {json.dumps(t['result'], ensure_ascii=False)}" for t in trace)
     messages = [{"role": "system", "content": GUIDED_SYSTEM},
-                {"role": "user", "content": f"{question}\n\nRésultats des outils de CreditLens (ta seule source) :\n{facts}"}]
+                {"role": "user", "content": f"{question}\n\nRésultats des outils de CreditLens (ta seule source) :\n{facts}\n/no_think"}]
     corrections, llm_seconds = 0, 0.0
     while True:
         resp = llm.chat(messages, None)                      # aucun outil proposé : le LLM ne fait que rédiger

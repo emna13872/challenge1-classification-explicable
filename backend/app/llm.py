@@ -34,6 +34,8 @@ class LLMError(Exception):
 def clean(text: str | None) -> str:
     """Retire le « raisonnement » que certains modèles (qwen3) écrivent entre <think> et </think>."""
     t = _THINK.sub("", text or "")
+    if "</think>" in t:                                      # balise ouvrante absente (mise dans le prompt par Ollama) :
+        t = t.split("</think>")[-1]                          # seul ce qui suit la dernière fermeture est la réponse
     if "<think>" in t:                                       # balise jamais refermée : on garde ce qui précède
         t = t.split("<think>")[0]
     return t.strip()
