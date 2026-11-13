@@ -1,0 +1,94 @@
+# Intégration continue de CreditLens : à chaque envoi sur GitHub, on teste tout ; si tout passe sur la branche
+# creditlens, on déploie sur Hugging Face Spaces (secret HF_TOKEN + variable HF_SPACE à créer dans GitHub).
+name: CI
+
+on:
+  push:
+    branches: [creditlens]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Tests du serveur (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -q
+
+  frontend:
+    name: Interface (construction + parcours complet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: pip install -r backend/requirements.txt
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - name: Démarrer l'API
+        working-directory: backend
+        run: |
+          nohup python -m uvicorn app.main:app --port 8000 > ../uvicorn.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:8000/api/health && break; sleep 2; done
+      - run: npx vitest run
+        working-directory: frontend
+      - if: failure()
+        run: cat uvicorn.log
+
+  docker:
+    name: Image Docker (construction + démarrage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t creditlens .
+      - name: Lancer l'image et la vérifier
+        run: |
+          docker run -d -p 7860:7860 --name app creditlens
+          for i in $(seq 1 30); do curl -sf localhost:7860/api/health && break; sleep 2; done
+          curl -sf localhost:7860/ | grep -qi "<html"
+          curl -sf -X POST localhost:7860/api/data/load -H "Content-Type: application/json" \
+               -d '{"dataset": "taiwan_credit"}' -o /dev/null
+          echo "Image OK : interface servie, jeu de Taïwan disponible"
+      - if: failure()
+        run: docker logs app || true
+
+  deploy:
+    name: Déploiement sur Hugging Face Spaces
+    needs: [backend, frontend, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/creditlens' && vars.HF_SPACE != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Envoyer une copie propre vers le Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          # Hugging Face refuse les fichiers binaires hors LFS : on envoie un instantané sans historique ni PDF.
+          git config user.name "CreditLens CI"
+          git config user.email "ci@users.noreply.github.com"
+          git checkout --orphan space
+          git rm -rq --cached docs/*.pdf 2>/dev/null || true
+          rm -f docs/*.pdf
+          sed -i 's/^title: .*/title: CreditLens/' README.md
+          git add -A
+          git commit -qm "Déploiement de ${GITHUB_SHA::7}"
+          git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" space:main
